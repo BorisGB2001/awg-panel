@@ -52,6 +52,19 @@ def test_new_country(tmp_path):
     assert new_country(conn, 1, "5.5.5.5", "NL", NOW)
 
 
+def test_new_country_ignores_addresses_without_country(tmp_path):
+    """Телефон прыгает между домашним RU-адресом и CGNAT 100.80.x.x (страны нет в гео-базе) — это не новая страна."""
+    conn, _ = setup(tmp_path)
+    ins = "INSERT INTO endpoints (peer_id, ip, first_seen, last_seen, country) VALUES (1, ?, ?, ?, ?)"
+    conn.execute(ins, ("100.80.1.1", NOW - 600, NOW - 60, None))
+    assert not new_country(conn, 1, "79.1.1.1", "RU", NOW)          # других стран нет — сравнивать не с чем
+    conn.execute(ins, ("79.1.1.1", NOW - 3600, NOW, "RU"))
+    assert not new_country(conn, 1, "79.1.1.1", "RU", NOW + 300)    # возврат на знакомый адрес
+    conn.execute(ins, ("5.5.5.5", NOW + 400, NOW + 400, "NL"))      # строку пишет poller до вызова
+    assert new_country(conn, 1, "5.5.5.5", "NL", NOW + 400)
+    assert conn.execute("SELECT detail FROM events WHERE kind = 'alert_new_country'").fetchone()[0].count("RU") == 1
+
+
 def test_weekly_needs_week_of_observation(tmp_path):
     conn, a = setup(tmp_path)
     assert a.check_weekly(NOW) == 0                       # отметка начала наблюдения

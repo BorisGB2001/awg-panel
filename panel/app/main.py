@@ -117,6 +117,8 @@ def render(request: Request, name: str, **ctx) -> HTMLResponse:
     ctx.setdefault("user", current_user(request))
     ctx.setdefault("flash", request.session.pop("flash", None))
     ctx.setdefault("lang", i18n.get())
+    ctx.setdefault("theme", theme_of(request))
+    ctx.setdefault("path", request.url.path)
     return templates.TemplateResponse(request, name, {"csrf": csrf_token(request), **ctx})
 
 
@@ -124,7 +126,7 @@ def render(request: Request, name: str, **ctx) -> HTMLResponse:
 async def require_login(request: Request, call_next):
     path = request.url.path
     i18n.set_lang(request.cookies.get("lang"))
-    if path.startswith(("/static/", "/me", "/lang/")) or path in ("/login", "/healthz") or current_user(request):
+    if path.startswith(("/static/", "/me", "/lang/", "/theme/")) or path in ("/login", "/healthz") or current_user(request):
         return await call_next(request)
     if path.startswith("/api/"):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -142,15 +144,37 @@ app.add_middleware(
 )
 
 
-@app.get("/lang/{code}")
-def set_language(request: Request, code: str):
-    """Язык интерфейса — в cookie на год; в кабинете клиента он же язык его уведомлений."""
-    code = i18n.normalize(code)
+THEMES = ("auto", "light", "dark")
+
+
+def theme_of(request: Request) -> str:
+    t = request.cookies.get("theme", "")
+    return t if t in THEMES else "auto"
+
+
+def back_to(request: Request) -> RedirectResponse:
+    """Назад на страницу, с которой пришли (только этот же хост)."""
     ref = urlsplit(request.headers.get("referer") or "")
     back = (ref.path or "/") + (f"?{ref.query}" if ref.query else "")
     if ref.netloc and ref.netloc != request.headers.get("host", ""):
         back = "/"
-    resp = RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/", status_code=303)
+    return RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/", status_code=303)
+
+
+@app.get("/theme/{mode}")
+def set_theme(request: Request, mode: str):
+    """Тема оформления — в cookie на год: светлая, тёмная или как в системе."""
+    resp = back_to(request)
+    resp.set_cookie("theme", mode if mode in THEMES else "auto", max_age=365 * 86400, httponly=True,
+                    secure=settings.cookie_secure, samesite="lax")
+    return resp
+
+
+@app.get("/lang/{code}")
+def set_language(request: Request, code: str):
+    """Язык интерфейса — в cookie на год; в кабинете клиента он же язык его уведомлений."""
+    code = i18n.normalize(code)
+    resp = back_to(request)
     resp.set_cookie("lang", code, max_age=365 * 86400, httponly=True, secure=settings.cookie_secure, samesite="lax")
     peer, _ = me_peer(request)
     if peer:

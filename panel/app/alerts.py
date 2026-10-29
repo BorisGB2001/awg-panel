@@ -132,13 +132,18 @@ class Alerts:
 
 
 def new_country(conn: sqlite3.Connection, peer_id: int, ip: str, country: str | None, now: int) -> bool:
-    """Вызывается poller'ом при новом IP клиента: страны не было у него за 30 дней (и это не первое подключение)."""
+    """Вызывается poller'ом при новом IP клиента: страны не было у него за 30 дней (и это не первое подключение).
+
+    Учитываются только адреса с известной страной: без этого переход с CGNAT-адреса (100.64/10, страны нет в базе)
+    обратно на домашний давал алерт «новая страна, раньше: —» при каждой смене. Адрес, который уже встречался
+    раньше, страну не меняет — его строка в endpoints тоже считается известной.
+    """
     if not country:
         return False
-    rows = conn.execute("SELECT country FROM endpoints WHERE peer_id = ? AND ip != ? AND last_seen >= ?",
-                        (peer_id, ip, now - 30 * 86400)).fetchall()
-    if not rows or any(r["country"] == country for r in rows):
+    known = {r["country"] for r in conn.execute(
+        "SELECT DISTINCT country FROM endpoints WHERE peer_id = ? AND country IS NOT NULL AND last_seen >= ? "
+        "AND NOT (ip = ? AND first_seen >= ?)", (peer_id, now - 30 * 86400, ip, now))}
+    if not known or country in known:
         return False
-    db.event(conn, "alert_new_country", peer_id, {"country": country, "ip": ip,
-                                                  "known": sorted({r["country"] for r in rows if r["country"]})}, ts=now)
+    db.event(conn, "alert_new_country", peer_id, {"country": country, "ip": ip, "known": sorted(known)}, ts=now)
     return True

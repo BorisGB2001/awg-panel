@@ -109,3 +109,24 @@ label.check select { width: auto; display: inline-block; margin: 0; }
 .lang a { padding: 2px 6px; border-radius: 4px; color: var(--muted); }
 .lang a.on { background: var(--accent); color: var(--accent-text); }
 .lang-corner { display: flex; justify-content: flex-end; }
+.top nav.menu a { color: var(--muted); padding: 4px 10px; border-radius: 6px; }
+.top nav.menu a:hover { color: var(--text); background: var(--bg); }
+.top nav.menu a.on { color: var(--accent-text); background: var(--accent); }
+.top nav.menu { gap: 4px; flex-wrap: wrap; }
+.theme a { font-size: 13px; line-height: 1.2; }
+.prefs-bar { display: flex; gap: 10px; align-items: center; }
+.lang-corner { gap: 10px; }
+.kpis.compact { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.kpis.compact .kpi b { font-size: 18px; white-space: nowrap; }
+.params { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.param { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; min-width: 0; }
+.param code { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.top nav.lang { flex: none; }
+.top .logout { margin-left: 4px; }
+.kpis.compact .card { padding: 14px 16px; }
+.kpis.compact .small { white-space: nowrap; }
+@media (max-width: 760px) {
+  .top { gap: 8px 12px; }
+  .top nav.menu { order: 3; flex-basis: 100%; }
+  .top .brand { margin-right: auto; }
+}

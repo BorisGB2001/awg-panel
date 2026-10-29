@@ -119,6 +119,10 @@ def test_stage7_pages_render(client):
     for url in ("/?days=7", "/?days=30", "/hosts", "/hosts/youtube.com", "/events?kind=alert_*", "/alerts", "/server", "/archive"):
         r = client.get(url)
         assert r.status_code == 200, url
+    # открытая страница подсвечена в меню, в том числе вложенные (/hosts/… → «Sites»)
+    assert '<a href="/hosts" class="on" aria-current="page">' in client.get("/hosts/youtube.com").text
+    page = client.get("/server").text
+    assert page.count('aria-current="page"') == 1 and '<a href="/server" class="on"' in page
     csv = client.get("/events.csv")
     assert csv.status_code == 200 and csv.text.startswith("﻿time;")
 

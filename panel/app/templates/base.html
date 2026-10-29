@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{ lang }}">
+<html lang="{{ lang }}"{% if theme in ("light", "dark") %} data-theme="{{ theme }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11,15 +11,14 @@
   {% if user %}
   <header class="top">
     <a class="brand" href="/">{{ _("AWG panel") }}</a>
-    <nav>
-      <a href="/">{{ _("Overview") }}</a>
-      <a href="/hosts">{{ _("Sites") }}</a>
-      <a href="/events">{{ _("Events") }}</a>
-      <a href="/archive">{{ _("Archive") }}</a>
-      <a href="/alerts">{{ _("Alerts") }}</a>
-      <a href="/blocks">{{ _("Blocking") }}</a>
-      <a href="/server">{{ _("Server") }}</a>
+    <nav class="menu">
+      {% for href, title, prefixes in [("/", N_("Overview"), ("/peer",)), ("/hosts", N_("Sites"), ("/host",)),
+          ("/events", N_("Events"), ()), ("/archive", N_("Archive"), ()), ("/alerts", N_("Alerts"), ()),
+          ("/blocks", N_("Blocking"), ()), ("/server", N_("Server"), ())] %}
+      <a href="{{ href }}"{% if path == href or path.startswith(prefixes) %} class="on" aria-current="page"{% endif %}>{{ _(title) }}</a>
+      {% endfor %}
     </nav>
+    {% include "theme.html" %}
     {% include "lang.html" %}
     <form method="post" action="/logout" class="logout">
       <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -28,7 +27,7 @@
   </header>
   {% endif %}
   <main>
-    {% if not user %}<div class="lang-corner">{% include "lang.html" %}</div>{% endif %}
+    {% if not user %}<div class="lang-corner">{% include "theme.html" %}{% include "lang.html" %}</div>{% endif %}
     {% if flash %}<div class="flash flash-{{ flash.kind }}">{{ flash.text }}</div>{% endif %}
     {% block content %}{% endblock %}
   </main>

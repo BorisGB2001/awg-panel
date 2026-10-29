@@ -124,3 +124,14 @@ def test_report_png(tmp_path):
     conn.execute("INSERT INTO peers (id, pubkey, name, ip) VALUES (5, 'k5', 'Анна', '10.8.1.5')")
     png, caption = report.daily_png(conn, 5, int(time.time()))
     assert png.startswith(b"\x89PNG") and "Анна" in caption
+
+
+def test_theme_switch_and_back_redirect(app_client):
+    c, _ = app_client
+    assert 'data-theme' not in c.get("/login").text            # по умолчанию — как в системе
+    r = c.get("/theme/dark", headers={"referer": "http://panel.test/login"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/login" and "theme=dark" in r.headers["set-cookie"]
+    page = c.get("/login").text
+    assert 'data-theme="dark"' in page and 'href="/theme/dark" class="on"' in page
+    r = c.get("/theme/evil", headers={"referer": "https://other.example/x"}, follow_redirects=False)
+    assert r.headers["location"] == "/" and "theme=auto" in r.headers["set-cookie"]

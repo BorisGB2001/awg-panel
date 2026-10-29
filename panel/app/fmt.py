@@ -155,5 +155,5 @@ def base_domain(name: str) -> str:
 
 def register(env) -> None:
     env.filters.update(size=size, dt=dt, ago=ago, duration=duration, flag=flag, base_domain=base_domain)
-    env.globals.update(event_text=event_text, status_name=status_name, STATUS_KEYS=STATUS_KEYS, _=t,
+    env.globals.update(event_text=event_text, status_name=status_name, STATUS_KEYS=STATUS_KEYS, _=t, N_=N_,
                        languages=i18n.languages)
