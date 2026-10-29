@@ -48,6 +48,7 @@ PAGES = [
     ("alerts", "/alerts", "Alerts"),
     ("blocking", "/blocks", "Blocking"),
     ("groups", "/groups", "Groups"),
+    ("backups", "/backups", "Backups"),
     ("server", "/server", "Server"),
     ("admins", "/admins", "Administrators"),
     ("portal", None, "Client portal"),

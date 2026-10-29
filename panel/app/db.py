@@ -202,6 +202,21 @@ MIGRATIONS: list[str] = [
     ALTER TABLE contacts ADD COLUMN cfg_code TEXT;
     ALTER TABLE contacts ADD COLUMN cfg_code_exp INT;
     """,
+    # 12: бэкапы в Telegram/e-mail: у каждого администратора своё задание (портал — супер, свои группы — админ группы)
+    """
+    CREATE TABLE backup_jobs (
+        admin_id INT PRIMARY KEY,
+        enabled INT NOT NULL DEFAULT 0,
+        to_telegram INT NOT NULL DEFAULT 1,
+        to_email INT NOT NULL DEFAULT 0,
+        email TEXT,
+        period TEXT NOT NULL DEFAULT 'daily',   -- daily | weekly
+        hour INT NOT NULL DEFAULT 3,
+        weekday INT NOT NULL DEFAULT 0,         -- 0 — понедельник
+        pass_enc TEXT,                          -- Fernet(пароль архива): нужен, чтобы шифровать по расписанию
+        last_day TEXT, last_ts INT, last_ok INT, last_status TEXT, last_size INT
+    );
+    """,
 ]
 
 

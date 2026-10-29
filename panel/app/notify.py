@@ -71,8 +71,9 @@ class Telegram:
     def send_photo(self, chat_id: int, png: bytes, caption: str) -> None:
         self.call("sendPhoto", {"chat_id": chat_id, "caption": caption[:1000]}, {"photo": ("stats.png", png, "image/png")})
 
-    def send_document(self, chat_id: int, name: str, data: bytes, caption: str = "") -> None:
-        self.call("sendDocument", {"chat_id": chat_id, "caption": caption[:1000]}, {"document": (name, data, "text/plain")})
+    def send_document(self, chat_id: int, name: str, data: bytes, caption: str = "", ctype: str = "text/plain") -> None:
+        self.call("sendDocument", {"chat_id": chat_id, "caption": caption[:1000]}, {"document": (name, data, ctype)},
+                  timeout=300)
 
 
 # ---- e-mail ----

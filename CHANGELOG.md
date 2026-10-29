@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.7.0 — 2026-10-30
+
+- Backups page: every administrator sets up their own backup — daily or weekly at a chosen hour, or "now" — sent to
+  Telegram, e-mail or both. A super administrator backs up the whole portal (database, `.env`, `data.key`,
+  AmneziaWG files) — enough to set up a new server; a group administrator gets the client list and configs of
+  their groups. Files are always encrypted with the administrator's backup password (AES-256-GCM, scrypt).
+- Restore: on the same server from the Backups page (AmneziaWG files applied live, database with a panel restart,
+  previous state kept); on a new server with `restore.sh` (also sets a new public IP). `python -m app.backup decrypt`
+  for manual decryption.
+- docker-compose: `.env` is mounted read-only into the panel container (it is part of the portal backup).
+- Narrower menu items so that the menu fits one line.
+
 ## 1.6.2 — 2026-10-30
 
 - Client card: Telegram ID and e-mail fields for the administrator. A new Telegram ID is checked with a test message

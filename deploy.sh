@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 HOST=${1:-$(cat .deploy-host 2>/dev/null)}
 [ -n "$HOST" ] || { echo "usage: $0 root@<server>  (or put it into .deploy-host)" >&2; exit 2; }
 COPYFILE_DISABLE=1 tar --no-xattrs -czf - --exclude '__pycache__' --exclude .pytest_cache \
-  panel docker-compose.yml Caddyfile .env.example init-admin.sh deploy.sh README.md | ssh "$HOST" '
+  panel docker-compose.yml Caddyfile .env.example init-admin.sh deploy.sh restore.sh README.md | ssh "$HOST" '
 set -e
 mkdir -p /opt/awg-panel && tar -xzf - -C /opt/awg-panel --no-same-owner
 cd /opt/awg-panel

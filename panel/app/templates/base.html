@@ -15,7 +15,7 @@
     <nav class="menu">
       {% for href, title, prefixes in [("/", N_("Overview"), ("/peer",)), ("/hosts", N_("Sites"), ("/host",)),
           ("/events", N_("Events"), ()), ("/archive", N_("Archive"), ()), ("/alerts", N_("Alerts"), ()),
-          ("/blocks", N_("Blocking"), ()), ("/groups", N_("Groups"), ())] + ([("/server", N_("Server"), ()), ("/admins", N_("Administrators"), ())]
+          ("/blocks", N_("Blocking"), ()), ("/groups", N_("Groups"), ()), ("/backups", N_("Backups"), ())] + ([("/server", N_("Server"), ()), ("/admins", N_("Administrators"), ())]
           if admin and admin.role == "super" else []) %}
       <a href="{{ href }}"{% if path == href or path.startswith(prefixes) %} class="on" aria-current="page"{% endif %}>{{ _(title) }}</a>
       {% endfor %}

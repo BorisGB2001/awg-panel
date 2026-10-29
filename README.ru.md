@@ -21,9 +21,9 @@
 <tr><td width="50%"><a href="docs/screenshots/ru/config.png"><img src="docs/screenshots/ru/config.png" alt="Конфиг — QR, ключ vpn://, отправка в Telegram или на почту"></a><br><b>Конфиг — QR, ключ vpn://, отправка в Telegram или на почту</b></td><td width="50%"><a href="docs/screenshots/ru/sites.png"><img src="docs/screenshots/ru/sites.png" alt="Сайты — куда ходят клиенты"></a><br><b>Сайты — куда ходят клиенты</b></td></tr>
 <tr><td width="50%"><a href="docs/screenshots/ru/events.png"><img src="docs/screenshots/ru/events.png" alt="События — подключения, смены IP, действия админов"></a><br><b>События — подключения, смены IP, действия админов</b></td><td width="50%"><a href="docs/screenshots/ru/archive.png"><img src="docs/screenshots/ru/archive.png" alt="Помесячный архив"></a><br><b>Помесячный архив</b></td></tr>
 <tr><td width="50%"><a href="docs/screenshots/ru/alerts.png"><img src="docs/screenshots/ru/alerts.png" alt="Алерты"></a><br><b>Алерты</b></td><td width="50%"><a href="docs/screenshots/ru/blocking.png"><img src="docs/screenshots/ru/blocking.png" alt="Блокировки — домены, IP, наборы"></a><br><b>Блокировки — домены, IP, наборы</b></td></tr>
-<tr><td width="50%"><a href="docs/screenshots/ru/groups.png"><img src="docs/screenshots/ru/groups.png" alt="Группы — трафик и квоты"></a><br><b>Группы — трафик и квоты</b></td><td width="50%"><a href="docs/screenshots/ru/server.png"><img src="docs/screenshots/ru/server.png" alt="Сервер — AmneziaWG и сборщики"></a><br><b>Сервер — AmneziaWG и сборщики</b></td></tr>
-<tr><td width="50%"><a href="docs/screenshots/ru/admins.png"><img src="docs/screenshots/ru/admins.png" alt="Администраторы — роли и группы"></a><br><b>Администраторы — роли и группы</b></td><td width="50%"><a href="docs/screenshots/ru/portal.png"><img src="docs/screenshots/ru/portal.png" alt="Кабинет клиента (личная ссылка)"></a><br><b>Кабинет клиента (личная ссылка)</b></td></tr>
-<tr><td width="50%"><a href="docs/screenshots/ru/overview-dark.png"><img src="docs/screenshots/ru/overview-dark.png" alt="Тёмная тема"></a><br><b>Тёмная тема</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/ru/groups.png"><img src="docs/screenshots/ru/groups.png" alt="Группы — трафик и квоты"></a><br><b>Группы — трафик и квоты</b></td><td width="50%"><a href="docs/screenshots/ru/backups.png"><img src="docs/screenshots/ru/backups.png" alt="Бэкапы — расписание, Telegram/почта, восстановление"></a><br><b>Бэкапы — расписание, Telegram/почта, восстановление</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/ru/server.png"><img src="docs/screenshots/ru/server.png" alt="Сервер — AmneziaWG и сборщики"></a><br><b>Сервер — AmneziaWG и сборщики</b></td><td width="50%"><a href="docs/screenshots/ru/admins.png"><img src="docs/screenshots/ru/admins.png" alt="Администраторы — роли и группы"></a><br><b>Администраторы — роли и группы</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/ru/portal.png"><img src="docs/screenshots/ru/portal.png" alt="Кабинет клиента (личная ссылка)"></a><br><b>Кабинет клиента (личная ссылка)</b></td><td width="50%"><a href="docs/screenshots/ru/overview-dark.png"><img src="docs/screenshots/ru/overview-dark.png" alt="Тёмная тема"></a><br><b>Тёмная тема</b></td></tr>
 </table>
 
 ## Как устроено
@@ -84,7 +84,26 @@ ssh root@<сервер> 'docker logs --tail 50 awg-panel-caddy'
 - БД панели: `data/backups/db/panel-*.db` (14 последних). Восстановить: `docker compose stop panel`, скопировать файл в `data/panel.db`, удалить `panel.db-wal`/`-shm`, `docker compose up -d --no-build panel`.
 - Секреты: `.env` (пароль, TOTP, сессии), `data/data.key` (шифрование приватных ключей клиентов) — без `data.key` конфиги клиентов, созданных в панели, восстановить нельзя. Хранить копии в надёжном месте.
 
-## Удаление панели без следов
+## Бэкапы в Telegram или на почту, восстановление
+
+Каждый администратор настраивает свой бэкап на странице **«Бэкапы»**: каждый день или раз в неделю в выбранный час, плюс «Сделать бэкап сейчас»; отправка в Telegram (чат, подключённый в «Моём аккаунте»), на почту или туда и туда.
+
+- **Супер-администратор — весь портал:** база панели, `.env` (пароль и TOTP администратора, ключи, токен бота, почта), `data.key` и файлы AmneziaWG (`awg0.conf`, `clientsTable`, ключи сервера, PSK). Этого хватает, чтобы поднять новый сервер.
+- **Администратор группы — свои группы:** `clients.csv` и конфиги `.conf` клиентов.
+- Файл (`.awgbak`) **всегда зашифрован** паролем бэкапа администратора (AES-256-GCM, ключ из пароля через scrypt). Сохраните пароль: без него бэкап не открыть. Расшифровать вручную: `docker compose exec panel python -m app.backup decrypt <файл>` (спросит пароль).
+
+**Восстановление на этом же сервере:** «Бэкапы» → «Восстановление из бэкапа» (супер-администратор): файлы AmneziaWG применяются сразу, без перезапуска AmneziaWG, база ставится на место, и панель перезапускается. Прежнее состояние сохраняется в `data/backups/<время>-pre-restore/`.
+
+**Переезд на новый сервер:**
+
+1. Установите AmneziaWG на новый сервер приложением AmneziaVPN (тот же протокол и **тот же порт**, что был, — порт берётся из восстановленного `awg0.conf`).
+2. Разверните панель: `./deploy.sh root@<новый-сервер>` (см. «Установка с нуля»; `init-admin.sh` запускать не нужно).
+3. Скопируйте бэкап и восстановите: `scp awg-portal-….awgbak root@<новый-сервер>:/opt/awg-panel/`, затем на сервере `cd /opt/awg-panel && ./restore.sh awg-portal-….awgbak [<новый-IP>]`. Скрипт спросит пароль бэкапа, вернёт `.env`, базу, `data.key` и файлы AmneziaWG, применит их и запустит панель.
+4. Откройте порты (`ufw allow <порт-VPN>/udp`, `14443/tcp`, `80/tcp`).
+
+Если у сервера остался прежний IP, клиенты продолжают работать со старыми конфигами. При новом IP передайте его в `restore.sh`: панель будет выдавать конфиги с новым адресом — отправьте их клиентам с карточек (Telegram или почта).
+
+
 
 ```bash
 cd /opt/awg-panel && docker compose down

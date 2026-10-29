@@ -169,3 +169,6 @@ details.inline-details[open] > summary { margin-bottom: 4px; }
 .contacts-form label { margin: 0; flex: 1 1 220px; }
 .contacts-form input { height: 36px; }
 .contacts-form button { height: 36px; padding-top: 0; padding-bottom: 0; }
+.quota-form input[type=email], .quota-form input[type=password] { width: 260px; }
+.top nav.menu a { padding: 4px 8px; font-size: 14px; }
+.top { gap: 12px; }

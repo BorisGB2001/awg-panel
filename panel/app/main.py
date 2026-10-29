@@ -20,7 +20,7 @@ from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import __version__, admins, auth, charts, groups, quotas, clientconf, db, fmt, i18n, maintenance, monthly, notify, portal, report
+from . import __version__, admins, auth, backup, charts, groups, quotas, clientconf, db, fmt, i18n, maintenance, monthly, notify, portal, report
 from .fmt import N_
 from .i18n import t
 from .awgctl import AWG, AwgUnavailable
@@ -47,6 +47,7 @@ totp = auth.TOTPGuard(settings.totp_secret) if settings.totp_secret else None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    backup.apply_staged(settings.data_dir)          # восстановление из бэкапа, начатое на странице «Бэкапы»
     app.state.db = db.open_db(settings.db_path)
     admins.ensure_env_admin(app.state.db, settings)
     app.state.accounts = admins.Accounts(settings, app.state.db, load_fernet(settings), totp)
@@ -54,6 +55,9 @@ async def lifespan(app: FastAPI):
     app.state.geo = Geo(settings.data_dir / "geo")
     app.state.poller = app.state.sniffer = app.state.flows = app.state.blocker = app.state.alerts = None
     app.state.notifier = None
+    app.state.backups = None
+    # перезапуск после восстановления базы: процесс завершается, Docker (restart: unless-stopped) поднимает его снова
+    app.state.restart = lambda: threading.Timer(2.0, os._exit, (0,)).start()
     if os.environ.get("PANEL_COLLECTORS", "1") == "1":
         threading.Thread(target=app.state.geo.updater, args=(app.state.stop,), name="geo", daemon=True).start()
         app.state.poller = Poller(settings, AWG(settings), db.open_db(settings.db_path), app.state.geo)
@@ -67,6 +71,8 @@ async def lifespan(app: FastAPI):
         app.state.notifier = notify.Notifier(settings, db.open_db(settings.db_path))
         attach_config(app.state.notifier)
         threading.Thread(target=app.state.notifier.run, args=(app.state.stop,), name="notify", daemon=True).start()
+        app.state.backups = backup.Backups(settings, app.state.notifier.conn, app.state.notifier, load_fernet(settings), AWG(settings))
+        threading.Thread(target=app.state.backups.loop, args=(app.state.stop,), name="backup", daemon=True).start()
         app.state.blocker = Blocker(settings, AWG(settings), db.open_db(settings.db_path))
         threading.Thread(target=app.state.blocker.run, args=(app.state.stop,), name="blocker", daemon=True).start()
         if settings.collect_hosts:
@@ -1019,6 +1025,79 @@ def groups_quota(request: Request, group_id: int, gib: str = Form(""), period: s
 def groups_delete(request: Request, group_id: int, csrf: str = Form("")):
     return group_action(request, csrf, lambda **kw: groups.delete(request.app.state.db, group_id, **kw),
                         t("Group deleted; its clients now have no group."))
+
+
+# ---- бэкапы ----
+
+def backups(request: Request) -> backup.Backups:
+    b = request.app.state.backups
+    if b is None:
+        n = notifier(request)
+        b = request.app.state.backups = backup.Backups(settings, request.app.state.db, n, load_fernet(settings), AWG(settings))
+    return b
+
+
+@app.get("/backups", response_class=HTMLResponse)
+def backups_page(request: Request):
+    row = current_admin(request)
+    conn = request.app.state.db
+    return render(request, "backups.html", job=backup.job(conn, row["id"]), tg_bot=tg_bot_name(request),
+                  email_on=notifier(request).email_on,
+                  my_groups=[g["name"] for g in group_choices(request)] if row["role"] != "super" else [],
+                  history=conn.execute("SELECT ts, kind, detail FROM events WHERE kind IN ('backup_sent', 'alert_backup') "
+                                       "AND detail LIKE ? ORDER BY id DESC LIMIT 10",
+                                       (f'%"username": "{row["username"]}"%',)).fetchall())
+
+
+@app.post("/backups/save")
+def backups_save(request: Request, enabled: str = Form(""), to_telegram: str = Form(""), to_email: str = Form(""),
+                 email: str = Form(""), period: str = Form("daily"), hour: str = Form("3"), weekday: str = Form("0"),
+                 password: str = Form(""), csrf: str = Form("")):
+    check_csrf(request, csrf)
+    try:
+        backup.save_job(request.app.state.db, load_fernet(settings), current_admin(request)["id"], enabled == "1",
+                        to_telegram == "1", to_email == "1", email, period, hour, weekday, password)
+        flash(request, t("Backup settings saved."))
+    except backup.BackupError as e:
+        flash(request, str(e), "error")
+    return RedirectResponse("/backups", status_code=303)
+
+
+@app.post("/backups/restore")
+async def backups_restore(request: Request):
+    """Восстановление на этом сервере (супер-администратор): файлы AmneziaWG — сразу, база — с перезапуском панели."""
+    require_super(request)
+    form = await request.form()
+    check_csrf(request, str(form.get("csrf", "")))
+    parts = {p for p in backup.PARTS if form.get(f"part_{p}") == "1"} - {"env"}
+    try:
+        if str(form.get("confirm", "")).strip().upper() != "RESTORE":
+            raise backup.BackupError(t("Type RESTORE to confirm."))
+        upload = form.get("file")
+        if not parts or upload is None or not hasattr(upload, "read"):
+            raise backup.BackupError(t("Choose the backup file and what to restore."))
+        files = backup.read_archive(await upload.read(), str(form.get("password", "")))
+        done = backup.restore(files, settings, AWG(settings), parts, live=True)
+    except (backup.BackupError, AwgUnavailable, OSError) as e:
+        flash(request, t("Not restored: {error}", error=e), "error")
+        return RedirectResponse("/backups#restore", status_code=303)
+    db.event(request.app.state.db, "backup_restored", None, {"parts": sorted(parts), "done": done},
+             current_user(request), client_ip(request))
+    if "db" in parts:
+        request.session.clear()   # сессии — из старой базы
+        request.app.state.restart()
+        return render(request, "restoring.html", done=done)
+    flash(request, t("Restored: {items}.", items="; ".join(done)))
+    return RedirectResponse("/backups", status_code=303)
+
+
+@app.post("/backups/run")
+def backups_run(request: Request, csrf: str = Form("")):
+    check_csrf(request, csrf)
+    status = backups(request).run(current_admin(request)["id"])
+    j = backup.job(request.app.state.db, current_admin(request)["id"])
+    flash(request, t("Backup: {status}", status=status), "ok" if j["last_ok"] else "error")
+    return RedirectResponse("/backups", status_code=303)
 
 
 # ---- учётки администраторов ----

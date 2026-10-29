@@ -21,9 +21,9 @@ Demo data: the clients, addresses and traffic are fictional. Click a picture to 
 <tr><td width="50%"><a href="docs/screenshots/en/config.png"><img src="docs/screenshots/en/config.png" alt="Config — QR, vpn:// key, sending to Telegram or e-mail"></a><br><b>Config — QR, vpn:// key, sending to Telegram or e-mail</b></td><td width="50%"><a href="docs/screenshots/en/sites.png"><img src="docs/screenshots/en/sites.png" alt="Sites — what clients visit"></a><br><b>Sites — what clients visit</b></td></tr>
 <tr><td width="50%"><a href="docs/screenshots/en/events.png"><img src="docs/screenshots/en/events.png" alt="Events — connections, IP changes, admin actions"></a><br><b>Events — connections, IP changes, admin actions</b></td><td width="50%"><a href="docs/screenshots/en/archive.png"><img src="docs/screenshots/en/archive.png" alt="Monthly archive"></a><br><b>Monthly archive</b></td></tr>
 <tr><td width="50%"><a href="docs/screenshots/en/alerts.png"><img src="docs/screenshots/en/alerts.png" alt="Alerts"></a><br><b>Alerts</b></td><td width="50%"><a href="docs/screenshots/en/blocking.png"><img src="docs/screenshots/en/blocking.png" alt="Blocking — domains, IPs, presets"></a><br><b>Blocking — domains, IPs, presets</b></td></tr>
-<tr><td width="50%"><a href="docs/screenshots/en/groups.png"><img src="docs/screenshots/en/groups.png" alt="Groups — traffic and quotas"></a><br><b>Groups — traffic and quotas</b></td><td width="50%"><a href="docs/screenshots/en/server.png"><img src="docs/screenshots/en/server.png" alt="Server — AmneziaWG and collectors"></a><br><b>Server — AmneziaWG and collectors</b></td></tr>
-<tr><td width="50%"><a href="docs/screenshots/en/admins.png"><img src="docs/screenshots/en/admins.png" alt="Administrators — roles and groups"></a><br><b>Administrators — roles and groups</b></td><td width="50%"><a href="docs/screenshots/en/portal.png"><img src="docs/screenshots/en/portal.png" alt="Client portal (personal link)"></a><br><b>Client portal (personal link)</b></td></tr>
-<tr><td width="50%"><a href="docs/screenshots/en/overview-dark.png"><img src="docs/screenshots/en/overview-dark.png" alt="Dark theme"></a><br><b>Dark theme</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/en/groups.png"><img src="docs/screenshots/en/groups.png" alt="Groups — traffic and quotas"></a><br><b>Groups — traffic and quotas</b></td><td width="50%"><a href="docs/screenshots/en/backups.png"><img src="docs/screenshots/en/backups.png" alt="Backups — schedule, Telegram/e-mail, restore"></a><br><b>Backups — schedule, Telegram/e-mail, restore</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/en/server.png"><img src="docs/screenshots/en/server.png" alt="Server — AmneziaWG and collectors"></a><br><b>Server — AmneziaWG and collectors</b></td><td width="50%"><a href="docs/screenshots/en/admins.png"><img src="docs/screenshots/en/admins.png" alt="Administrators — roles and groups"></a><br><b>Administrators — roles and groups</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/en/portal.png"><img src="docs/screenshots/en/portal.png" alt="Client portal (personal link)"></a><br><b>Client portal (personal link)</b></td><td width="50%"><a href="docs/screenshots/en/overview-dark.png"><img src="docs/screenshots/en/overview-dark.png" alt="Dark theme"></a><br><b>Dark theme</b></td></tr>
 </table>
 
 ## Features
@@ -106,7 +106,26 @@ The same is shown in the panel on the "Server" page.
 - Panel DB: `data/backups/db/panel-*.db` (last 14). Restore: `docker compose stop panel`, copy the file to `data/panel.db`, delete `panel.db-wal`/`-shm`, `docker compose up -d --no-build panel`.
 - Secrets: `.env` (password, TOTP, sessions) and `data/data.key` (encrypts client private keys). Without `data.key` the configs of clients created in the panel cannot be restored. Keep copies somewhere safe.
 
-## Uninstall
+## Backups to Telegram or e-mail, restore
+
+Every administrator sets up their own backup on the **Backups** page: daily or weekly at a chosen hour, plus "Make a backup now"; delivery to Telegram (the chat connected on "My account"), e-mail or both.
+
+- **Super administrator — the whole portal:** panel database, `.env` (admin password and TOTP, keys, bot token, mail), `data.key` and the AmneziaWG files (`awg0.conf`, `clientsTable`, server keys, PSK). Enough to set up a new server.
+- **Group administrator — their groups:** `clients.csv` and the `.conf` configs of the clients.
+- The file (`.awgbak`) is **always encrypted** with the administrator's backup password (AES-256-GCM, key from the password via scrypt). Keep the password: without it the backup cannot be opened. Decrypt by hand: `docker compose exec panel python -m app.backup decrypt <file>` (asks for the password).
+
+**Restore on the same server:** Backups page → "Restore from a backup" (super administrators): the AmneziaWG files are applied at once without restarting AmneziaWG, the database is put in place and the panel restarts. The previous state is saved to `data/backups/<time>-pre-restore/`.
+
+**Move to a new server:**
+
+1. Install AmneziaWG on the new server with the AmneziaVPN app (same protocol, **same port** as before — the port comes from the restored `awg0.conf`).
+2. Deploy the panel: `./deploy.sh root@<new-server>` (see Installation; no need to run `init-admin.sh`).
+3. Copy the backup and restore: `scp awg-portal-….awgbak root@<new-server>:/opt/awg-panel/` and on the server `cd /opt/awg-panel && ./restore.sh awg-portal-….awgbak [<new-public-ip>]`. It asks for the backup password, puts back `.env`, the database, `data.key` and the AmneziaWG files, applies them and starts the panel.
+4. Open the ports (`ufw allow <vpn-port>/udp`, `14443/tcp`, `80/tcp`).
+
+If the server keeps its IP address, clients keep working with their old configs. With a new IP, pass it to `restore.sh`: the panel then issues configs with the new address — send them to the clients from the client cards (Telegram or e-mail).
+
+
 
 ```bash
 cd /opt/awg-panel && docker compose down

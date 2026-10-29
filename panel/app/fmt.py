@@ -40,12 +40,13 @@ EVENT_NAMES = {
     "group_member": N_("moved to a group"), "acct_groups": N_("administrator groups changed"),
     "acct_telegram": N_("administrator connected Telegram"),
     "alert_quota": N_("traffic quota"), "quota_set": N_("quota changed"),
-    "contacts_set": N_("contacts changed"), "admin_rekey": N_("new keys issued"), "config_sent": N_("config sent"), "config_link_issued": N_("bot link for the config created"),
+    "contacts_set": N_("contacts changed"), "backup_sent": N_("backup sent"), "backup_restored": N_("restored from a backup"), "alert_backup": N_("backup failed"), "admin_rekey": N_("new keys issued"), "config_sent": N_("config sent"), "config_link_issued": N_("bot link for the config created"),
     "client_view": N_("client portal opened"), "contact_telegram": N_("Telegram connected"), "contact_email": N_("e-mail confirmed"),
 }
 
 PERIOD_NAMES = {"month": N_("month"), "day": N_("day")}
 ACTION_NAMES = {"alert": N_("alert only"), "disable": N_("disable clients until the period ends")}
+WEEKDAYS = (N_("Monday"), N_("Tuesday"), N_("Wednesday"), N_("Thursday"), N_("Friday"), N_("Saturday"), N_("Sunday"))
 ROLE_NAMES = {"super": N_("super administrator"), "group": N_("group administrator")}
 
 STATUS_KEYS = ("online", "recent", "idle", "never", "disabled")
@@ -123,6 +124,8 @@ def event_text(kind: str, detail: str | None) -> str:
         return f"{name}, {duration(d.get('duration'))}, ↓{size(d.get('tx'))} ↑{size(d.get('rx'))}"
     if kind == "endpoint_change":
         return f"{name}: {d.get('from')} → {d.get('to')} {flag(d.get('country'))} {d.get('org') or ''}".strip()
+    if kind in ("backup_sent", "alert_backup"):
+        return f"{name}: {d.get('username')} — {d.get('status')}"
     if kind == "config_sent":
         return f"{name}: {d.get('channel')} → {d.get('to')}"
     if kind in ("admin_add", "admin_delete", "admin_disable", "admin_enable", "admin_rekey"):
@@ -182,5 +185,5 @@ def base_domain(name: str) -> str:
 
 def register(env) -> None:
     env.filters.update(size=size, dt=dt, ago=ago, duration=duration, flag=flag, base_domain=base_domain)
-    env.globals.update(event_text=event_text, status_name=status_name, STATUS_KEYS=STATUS_KEYS, _=t, N_=N_, VERSION=__version__, ROLE_NAMES=ROLE_NAMES, PERIOD_NAMES=PERIOD_NAMES, ACTION_NAMES=ACTION_NAMES,
+    env.globals.update(event_text=event_text, status_name=status_name, STATUS_KEYS=STATUS_KEYS, _=t, N_=N_, VERSION=__version__, ROLE_NAMES=ROLE_NAMES, WEEKDAYS=WEEKDAYS, PERIOD_NAMES=PERIOD_NAMES, ACTION_NAMES=ACTION_NAMES,
                        languages=i18n.languages)

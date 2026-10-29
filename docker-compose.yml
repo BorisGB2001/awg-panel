@@ -24,6 +24,8 @@ services:
     env_file: .env
     volumes:
       - ./data:/data
+      # boris.gb 2026-10-29 23:16 - .env read-only inside the panel: it goes into the full (encrypted) portal backup
+      - ./.env:/srv/host.env:ro
     logging: *logging
 
   caddy:
