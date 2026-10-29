@@ -217,6 +217,16 @@ MIGRATIONS: list[str] = [
         last_day TEXT, last_ts INT, last_ok INT, last_status TEXT, last_size INT
     );
     """,
+    # 13: доступ к панели администратора только с этих адресов/подсетей; пусто — без ограничения
+    """
+    CREATE TABLE ip_allow (
+        id INTEGER PRIMARY KEY,
+        cidr TEXT NOT NULL UNIQUE,
+        note TEXT,
+        created_at INT,
+        actor TEXT
+    );
+    """,
 ]
 
 

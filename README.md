@@ -106,6 +106,17 @@ The same is shown in the panel on the "Server" page.
 - Panel DB: `data/backups/db/panel-*.db` (last 14). Restore: `docker compose stop panel`, copy the file to `data/panel.db`, delete `panel.db-wal`/`-shm`, `docker compose up -d --no-build panel`.
 - Secrets: `.env` (password, TOTP, sessions) and `data/data.key` (encrypts client private keys). Without `data.key` the configs of clients created in the panel cannot be restored. Keep copies somewhere safe.
 
+## Access by IP
+
+The panel (including the sign-in page) can be limited to a list of addresses and subnets; the client portal stays open. An empty list means no restriction. Manage it on the **Administrators** page (super administrators; the panel will not let you remove your own current address) or on the server — this works even when the browser has lost access:
+
+```bash
+ssh root@<server> /opt/awg-panel/ip-allow.sh list
+ssh root@<server> /opt/awg-panel/ip-allow.sh add 203.0.113.7 office      # address or subnet, IPv4 or IPv6
+ssh root@<server> /opt/awg-panel/ip-allow.sh remove 203.0.113.7          # or the number from list
+ssh root@<server> /opt/awg-panel/ip-allow.sh clear                       # remove the restriction
+```
+
 ## Backups to Telegram or e-mail, restore
 
 Every administrator sets up their own backup on the **Backups** page: daily or weekly at a chosen hour, plus "Make a backup now"; delivery to Telegram (the chat connected on "My account"), e-mail or both.

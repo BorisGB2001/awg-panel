@@ -20,7 +20,7 @@ from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import __version__, admins, auth, backup, charts, groups, quotas, clientconf, db, fmt, i18n, maintenance, monthly, notify, portal, report
+from . import __version__, admins, auth, backup, charts, groups, ipallow, quotas, clientconf, db, fmt, i18n, maintenance, monthly, notify, portal, report
 from .fmt import N_
 from .i18n import t
 from .awgctl import AWG, AwgUnavailable
@@ -196,7 +196,13 @@ def render(request: Request, name: str, **ctx) -> HTMLResponse:
 async def require_login(request: Request, call_next):
     path = request.url.path
     i18n.set_lang(request.cookies.get("lang"))
-    if path.startswith(("/static/", "/me", "/lang/", "/theme/")) or path in ("/login", "/login/totp", "/healthz"):
+    if path.startswith(("/static/", "/me", "/lang/", "/theme/")) or path == "/healthz":
+        return await call_next(request)
+    if not ipallow.allowed(request.app.state.db, client_ip(request)):
+        # админская часть, включая вход, — только с разрешённых адресов (кабинет клиентов /me открыт)
+        return Response(t("Access to the panel from your address is not allowed."), status_code=403,
+                        media_type="text/plain; charset=utf-8")
+    if path in ("/login", "/login/totp"):
         return await call_next(request)
     row = current_admin(request)
     if row:
@@ -1160,6 +1166,7 @@ def admins_page(request: Request):
     require_super(request)
     conn = request.app.state.db
     return render(request, "admins.html", rows=admins.all_admins(conn), roles=admins.creatable_roles(),
+                  ip_rows=ipallow.entries(conn), my_ip=client_ip(request),
                   group_list=groups.all_groups(conn),
                   member={a["id"]: groups.admin_group_ids(conn, a["id"]) for a in admins.all_admins(conn)},
                   new_password=request.session.pop("new_password", None))
@@ -1219,6 +1226,31 @@ def admins_groups(request: Request, admin_id: int, group_ids: list[str] = Form([
     ids = {int(g) for g in group_ids if g.isdigit()}
     return admin_action(request, csrf, lambda **kw: groups.set_admin_groups(request.app.state.db, admin_id, ids, **kw),
                         t("Groups of the administrator saved."))
+
+
+@app.post("/admins/ip/add")
+def admins_ip_add(request: Request, cidr: str = Form(""), note: str = Form(""), csrf: str = Form("")):
+    require_super(request)
+    check_csrf(request, csrf)
+    try:
+        added = ipallow.add(request.app.state.db, cidr, note, current_user(request), client_ip(request), keep_ip=client_ip(request))
+        flash(request, t("{cidr} added: the panel opens only from the listed addresses.", cidr=added))
+    except ipallow.IPAllowError as e:
+        flash(request, str(e), "error")
+    return RedirectResponse("/admins#ip", status_code=303)
+
+
+@app.post("/admins/ip/{entry_id}/delete")
+def admins_ip_delete(request: Request, entry_id: int, csrf: str = Form("")):
+    require_super(request)
+    check_csrf(request, csrf)
+    try:
+        removed = ipallow.remove(request.app.state.db, str(entry_id), current_user(request), client_ip(request),
+                                 keep_ip=client_ip(request))
+        flash(request, t("{cidr} removed.", cidr=removed))
+    except ipallow.IPAllowError as e:
+        flash(request, str(e), "error")
+    return RedirectResponse("/admins#ip", status_code=303)
 
 
 @app.post("/admins/{admin_id}/delete")

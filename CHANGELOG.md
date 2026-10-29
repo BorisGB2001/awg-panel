@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.0 — 2026-10-30
+
+- Access by IP: the panel (including sign-in) opens only from listed addresses and subnets (IPv4/IPv6); the client
+  portal stays open; an empty list means no restriction. Managed on the Administrators page (super administrators,
+  with protection against locking yourself out) and with `ip-allow.sh list | add | remove | clear` on the server.
+
 ## 1.7.0 — 2026-10-30
 
 - Backups page: every administrator sets up their own backup — daily or weekly at a chosen hour, or "now" — sent to

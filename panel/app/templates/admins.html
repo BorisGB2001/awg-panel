@@ -44,6 +44,26 @@
   </table></div>
 </section>
 
+<section class="card" id="ip">
+  <h1>{{ _("Access by IP") }}</h1>
+  <p class="muted small">{{ _("The panel (including the sign-in page) opens only from these addresses and subnets. The client portal stays open. Empty list — no restriction. Your current address: {ip}.", ip=my_ip) }}</p>
+  {% if ip_rows %}
+  <table class="tbl compact-tbl">
+    {% for r in ip_rows %}<tr><td><code>{{ r.cidr }}</code>{% if r.note %} <span class="muted small">{{ r.note }}</span>{% endif %}</td>
+      <td class="muted small nowrap">{{ r.created_at|dt }} · {{ r.actor or "" }}</td>
+      <td class="nowrap"><form method="post" action="/admins/ip/{{ r.id }}/delete" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="danger small-btn">{{ _("Delete") }}</button></form></td></tr>{% endfor %}
+  </table>
+  {% else %}<p><span class="st">{{ _("no restriction") }}</span></p>{% endif %}
+  <form method="post" action="/admins/ip/add" class="row-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input name="cidr" required placeholder="{{ _("address or subnet, e.g. {ip} or 203.0.113.0/24", ip=my_ip) }}" aria-label="{{ _("Address or subnet") }}">
+    <input name="note" maxlength="200" placeholder="{{ _("Note") }}" aria-label="{{ _("Note") }}">
+    <button type="submit">{{ _("Allow") }}</button>
+  </form>
+  <p class="muted small">{{ _("The first address must be your own — the panel will not let you lock yourself out. On the server the list is managed with ./ip-allow.sh list | add <address> [note] | remove <address or number> | clear — it works even if the browser has lost access.") }}</p>
+</section>
+
 <section class="card">
   <h1>{{ _("Add an administrator") }}</h1>
   <form method="post" action="/admins/add" class="inline-form wide" autocomplete="off">
