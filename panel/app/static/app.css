@@ -130,3 +130,4 @@ label.check select { width: auto; display: inline-block; margin: 0; }
   .top nav.menu { order: 3; flex-basis: 100%; }
   .top .brand { margin-right: auto; }
 }
+.kpi-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0 8px; }

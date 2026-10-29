@@ -3,8 +3,9 @@
 {% block content %}
 {% for e in info.errors %}<div class="flash flash-error">{{ e }}</div>{% endfor %}
 <section class="kpis compact">
-  <div class="card kpi"><div class="muted">{{ _("Uptime") }}</div><b>{{ (now - info.started)|duration if info.started else "—" }}</b>
-    <div class="muted small">{{ _("since {when}", when=info.started|dt("%d.%m %H:%M")) }}<br>PID {{ info.pid or "—" }}</div></div>
+  <div class="card kpi"><div class="muted kpi-head"><span>{{ _("Uptime") }}</span><span class="small">PID {{ info.pid or "—" }}</span></div>
+    <b>{{ (now - info.started)|duration if info.started else "—" }}</b>
+    <div class="muted small">{{ _("since {when}", when=info.started|dt("%d.%m %H:%M")) }}</div></div>
   <div class="card kpi"><div class="muted">{{ _("Load 1/5/15") }}</div><b>{{ info.load|join(" / ") if info.load else "—" }}</b><div class="muted small">{{ _("CPU cores: {n}", n=info.cpus) }}</div></div>
   <div class="card kpi"><div class="muted">{{ _("Memory") }}</div><b>{{ info.mem[0]|size if info.mem else "—" }}</b><div class="muted small">{{ _("of {n}", n=info.mem[1]|size) if info.mem else "" }}</div></div>
   <div class="card kpi"><div class="muted">{{ _("Disk") }}</div><b>{{ info.disk[0]|size }}</b><div class="muted small">{{ _("of {n}", n=info.disk[1]|size) }}</div></div>
