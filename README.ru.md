@@ -6,7 +6,7 @@
 
 | | |
 |---|---|
-| Адрес | `https://<IP-сервера>:14443` (порт — `PANEL_PORT` в `.env`; сертификат Let's Encrypt на IP, Caddy продлевает сам, нужен открытый порт 80) |
+| Адрес | `https://<IP-сервера>:14443` (порт — `PANEL_PORT` в `.env`; сертификат Let's Encrypt на IP, Caddy продлевает сам; порт 80 должен быть разрешён в firewall, но Caddy слушает его только несколько секунд во время проверки сертификата) |
 | Каталог | `/opt/awg-panel` на сервере AmneziaWG |
 | Контейнеры | `awg-panel` (Python, FastAPI), `awg-panel-caddy` (HTTPS) |
 | Данные | `/opt/awg-panel/data`: `panel.db` (SQLite), `backups/` (конфиги AmneziaWG и БД), `geo/` (DB-IP), `data.key` |
@@ -42,7 +42,7 @@
 ssh root@<сервер> 'cd /opt/awg-panel && cp -n .env.example .env && chmod 600 .env'
 # в .env задать PANEL_HOST, PUBLIC_HOST, SESSION_SECRET, DATA_KEY (команды для генерации — в самом файле)
 ssh root@<сервер> 'cd /opt/awg-panel && docker compose up -d --no-build'   # panel + caddy
-ssh root@<сервер> 'ufw allow 14443/tcp && ufw allow 80/tcp'   # 80 — для выпуска и продления сертификата
+ssh root@<сервер> 'ufw allow 14443/tcp && ufw allow 80/tcp'   # 80 — только для проверки сертификата, в остальное время там никто не слушает
 ```
 
 Пароль администратора и TOTP — в своём терминале (вывод содержит секрет TOTP):
@@ -127,6 +127,8 @@ rm -rf /opt/awg-panel        # вместе с данными и бэкапам�
 `nf_conntrack_acct=1` в контейнере сбросится при его следующем перезапуске; на работу VPN не влияет.
 
 ## Известные особенности
+
+- **Порт 80** разрешён в firewall, но обычно закрыт: перенаправления HTTP→HTTPS нет, Caddy открывает :80 только пока Let's Encrypt проверяет сертификат на IP (раз в 2–3 дня, на несколько секунд). Проверка через порт 443 (TLS-ALPN) тоже возможна, если 443 свободен: уберите `disable_tlsalpn_challenge` из `Caddyfile`.
 
 - **Хеш пароля без `$`.** docker compose подставляет переменные в `.env`, поэтому хеш хранится как `scrypt:N:r:p:salt:hash`.
 - **`Referrer-Policy: same-origin`.** С `no-referrer` браузер отправляет формы с `Origin: null`; панель такое принимает, но держать заголовок так.

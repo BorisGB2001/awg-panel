@@ -3,13 +3,18 @@
 {
 	# boris.gb 2026-10-28 21:12 - HTTPS only, Caddy admin API disabled
 	admin off
+	# boris.gb 2026-10-30 00:28 - no permanent listener on :80 (no HTTP->HTTPS redirect): Caddy opens :80 only for a few seconds
+	# while Let's Encrypt validates the certificate (http-01); port 443 on this server is used by another service
+	auto_https disable_redirects
 }
 
-# boris.gb 2026-10-29 00:35 - panel port from .env (PANEL_PORT, default 14443); the certificate still comes via ACME http-01 on :80
+# boris.gb 2026-10-29 00:35 - panel port from .env (PANEL_PORT, default 14443); the certificate comes via ACME http-01 on :80
 https://{$PANEL_HOST}:{$PANEL_PORT:14443} {
 	tls {
 		issuer acme {
 			profile shortlived
+			# boris.gb 2026-10-30 00:28 - only http-01: port 443 (tls-alpn-01) is taken by another service on this server
+			disable_tlsalpn_challenge
 		}
 		# boris.gb 2026-10-28 21:12 - fallback if Let's Encrypt refuses an IP certificate: replace the issuer block
 		# with "internal" and verify the certificate fingerprint on first login

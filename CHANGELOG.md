@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.2 — 2026-10-30
+
+- No permanent listener on port 80: the HTTP→HTTPS redirect is off, Caddy opens :80 only for a few seconds while
+  Let's Encrypt validates the IP certificate (http-01). TLS-ALPN validation is disabled because port 443 on the
+  server is used by another service; it can be enabled again where 443 is free.
+
 ## 1.8.1 — 2026-10-30
 
 - Footer: GitHub links with icons to AWG Panel (with the version), AmneziaWG and AmneziaVPN; IP geolocation by DB-IP

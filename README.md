@@ -6,7 +6,7 @@ A web panel for an AmneziaWG server run by the AmneziaVPN app (Docker container 
 
 | | |
 |---|---|
-| Address | `https://<server-ip>:14443` (port is `PANEL_PORT` in `.env`; Let's Encrypt certificate for the IP, renewed by Caddy, port 80 must be open) |
+| Address | `https://<server-ip>:14443` (port is `PANEL_PORT` in `.env`; Let's Encrypt certificate for the IP, renewed by Caddy; port 80 must be allowed in the firewall, but Caddy listens on it only for a few seconds while the certificate is validated) |
 | Install dir | `/opt/awg-panel` on the AmneziaWG server |
 | Containers | `awg-panel` (Python, FastAPI), `awg-panel-caddy` (HTTPS) |
 | Data | `/opt/awg-panel/data`: `panel.db` (SQLite), `backups/` (AmneziaWG configs and DB), `geo/` (DB-IP), `data.key` |
@@ -64,7 +64,7 @@ Demo data: the clients, addresses and traffic are fictional. Click a picture to 
 ssh root@<server> 'cd /opt/awg-panel && cp -n .env.example .env && chmod 600 .env'
 # edit .env: PANEL_HOST, PUBLIC_HOST, SESSION_SECRET, DATA_KEY (commands to generate them are in the file)
 ssh root@<server> 'cd /opt/awg-panel && docker compose up -d --no-build'   # panel + caddy
-ssh root@<server> 'ufw allow 14443/tcp && ufw allow 80/tcp'                # 80 is for the certificate
+ssh root@<server> 'ufw allow 14443/tcp && ufw allow 80/tcp'                # 80: certificate validation only, nothing listens there otherwise
 ```
 
 Set the admin password and TOTP in your own terminal (the output contains the TOTP secret):
@@ -149,6 +149,8 @@ rm -rf /opt/awg-panel        # removes data and backups too — save what you ne
 `nf_conntrack_acct=1` inside the container is reset on its next restart; it does not affect the VPN.
 
 ## Known quirks
+
+- **Port 80** is open in the firewall but normally closed: there is no HTTP→HTTPS redirect, Caddy opens :80 only while Let's Encrypt validates the IP certificate (every 2–3 days, a few seconds). Validation through port 443 (TLS-ALPN) works too if 443 is free: remove `disable_tlsalpn_challenge` from the `Caddyfile`.
 
 - **Password hash without `$`.** docker compose interpolates variables in `.env`, so the hash is stored as `scrypt:N:r:p:salt:hash`.
 - **`Referrer-Policy: same-origin`.** With `no-referrer` browsers submit forms with `Origin: null`; the panel accepts that, but keep the header as is.
