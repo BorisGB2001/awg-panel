@@ -5,6 +5,7 @@ import csv
 import io
 import logging
 import os
+import re
 import secrets
 import threading
 import time
@@ -158,7 +159,7 @@ def back_to(request: Request) -> RedirectResponse:
     back = (ref.path or "/") + (f"?{ref.query}" if ref.query else "")
     if ref.netloc and ref.netloc != request.headers.get("host", ""):
         back = "/"
-    return RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/", status_code=303)
+    return RedirectResponse(back if local_path(back) else "/", status_code=303)
 
 
 @app.get("/theme/{mode}")
@@ -440,8 +441,13 @@ def blocker(request: Request) -> Blocker:
     return b
 
 
+def local_path(path: str) -> bool:
+    """Путь на этом же сайте: «/\\evil.com» и «//evil.com» браузер понимает как другой хост."""
+    return path.startswith("/") and not path.startswith(("//", "/\\")) and not any(c in path for c in "\\\r\n")
+
+
 def back_url(back: str) -> str:
-    return back if back.startswith("/") and not back.startswith("//") else "/blocks"
+    return back if local_path(back) else "/blocks"
 
 
 @app.get("/blocks", response_class=HTMLResponse)
@@ -482,6 +488,7 @@ def blocks_add(request: Request, values: str = Form(""), peer_id: str = Form("")
 @app.post("/blocks/preset")
 def blocks_preset(request: Request, preset: str = Form(""), peer_id: str = Form(""), back: str = Form("/blocks"),
                   csrf: str = Form("")):
+    check_csrf(request, csrf)
     if preset not in PRESETS:
         raise HTTPException(404)
 
@@ -570,8 +577,9 @@ def events_csv(request: Request, days: int = 7, kind: str = "", peer_id: str = "
     w = csv.writer(buf, delimiter=";")
     w.writerow([t("time"), t("client"), t("event"), t("description"), t("who"), t("admin IP"), t("details JSON")])
     for r in rows:
-        w.writerow([fmt.dt(r["ts"], "%Y-%m-%d %H:%M:%S"), r["name"] or "", fmt.event_name(r["kind"]),
-                    fmt.event_text(r["kind"], r["detail"]), r["actor"] or "", r["actor_ip"] or "", r["detail"] or ""])
+        w.writerow(map(csv_cell, [fmt.dt(r["ts"], "%Y-%m-%d %H:%M:%S"), r["name"] or "", fmt.event_name(r["kind"]),
+                                  fmt.event_text(r["kind"], r["detail"]), r["actor"] or "", r["actor_ip"] or "",
+                                  r["detail"] or ""]))
     return Response("\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="awg-events-{days}d.csv"', "Cache-Control": "no-store"})
 
@@ -651,14 +659,22 @@ def archive_page(request: Request, month: str = ""):
                   total=(sum(r["tx"] for r in rows), sum(r["rx"] for r in rows)))
 
 
+def csv_cell(v):
+    """Ячейка CSV без формул: имя клиента вида «=HYPERLINK(…)» Excel иначе выполнит при открытии."""
+    return "'" + v if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r") else v
+
+
 @app.get("/archive/{month}.csv")
 def archive_csv(request: Request, month: str):
+    if not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise HTTPException(404)
     rows = request.app.state.db.execute("SELECT * FROM monthly_archive WHERE month = ? ORDER BY tx DESC", (month,)).fetchall()
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
     w.writerow([t("month"), t("client"), "IP", t("downloaded, bytes"), t("uploaded, bytes"), t("sessions"), t("online, h")])
     for r in rows:
-        w.writerow([r["month"], r["name"], r["ip"], r["tx"], r["rx"], r["sessions"], round(r["online_sec"] / 3600, 1)])
+        w.writerow(map(csv_cell, [r["month"], r["name"], r["ip"], r["tx"], r["rx"], r["sessions"],
+                                  round(r["online_sec"] / 3600, 1)]))
     return Response("\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="awg-{month}.csv"'})
 

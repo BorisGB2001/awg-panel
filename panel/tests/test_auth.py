@@ -136,3 +136,45 @@ def test_language_switch(client):
     client.get("/lang/en")
     assert "Sign in" in client.get("/login").text
     assert client.get("/lang/xx", follow_redirects=False).headers["location"] == "/"
+
+
+def _login(client):
+    tok = _csrf(client.get("/login").text)
+    code = pyotp.TOTP(client.totp_secret).now()
+    client.post("/login", data={"username": "admin", "password": "s3cret-password", "code": code, "csrf": tok})
+
+
+def test_every_admin_post_needs_csrf(client):
+    """Все POST-действия админа отклоняют запрос без верного CSRF-токена (новый маршрут без проверки уронит тест)."""
+    from app import main
+    _login(client)
+    skip = {"/login", "/me/logout"}   # вход проверяет токен сам; выход из кабинета безопасен и без него
+    routes = [r.path for r in main.app.routes if "POST" in getattr(r, "methods", ()) and r.path not in skip]
+    assert len(routes) >= 15
+    for path in routes:
+        url = path.replace("{peer_id}", "1").replace("{rule_id}", "1")
+        r = client.post(url, data={"csrf": "forged", "name": "x", "value": "example.com"}, follow_redirects=False)
+        assert r.status_code == 403 or (path.startswith("/me") and r.status_code == 303), (path, r.status_code)
+
+
+def test_csv_has_no_formulas_and_month_is_checked(client):
+    from app import db, main
+    _login(client)
+    conn = main.app.state.db
+    conn.execute("INSERT INTO peers (id, pubkey, name, ip) VALUES (9, 'k9', '=HYPERLINK(\"http://x\")', '10.8.1.9')")
+    db.event(conn, "admin_add", 9, {"name": "x"})
+    assert "\"'=HYPERLINK" in client.get("/events.csv").text
+    assert client.get("/archive/2026-10%22x.csv").status_code == 404
+
+
+def test_data_files_are_private(client, tmp_path):
+    import stat
+    assert stat.S_IMODE(tmp_path.stat().st_mode) == 0o700
+    assert all(stat.S_IMODE(f.stat().st_mode) == 0o600 for f in tmp_path.glob("panel.db*"))
+
+
+def test_redirect_targets_stay_local():
+    from app.main import back_url, local_path
+    assert local_path("/peer/5?days=7") and back_url("/peer/5") == "/peer/5"
+    for bad in ("//evil.com", "/\\evil.com", "/x\\y", "https://evil.com", "/\r\nSet-Cookie: x", ""):
+        assert not local_path(bad) and back_url(bad) == "/blocks", bad

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 from pathlib import Path
@@ -195,9 +196,16 @@ def _split(sql: str) -> list[str]:
 
 
 def open_db(path: Path | str) -> sqlite3.Connection:
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    """Открыть и смигрировать БД. Каталог данных и файлы БД — только для владельца: в них история клиентов."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    os.umask(0o077)  # всё, что панель создаёт дальше (БД, -wal/-shm, гео, бэкапы), — 600/700
     conn = connect(path)
     migrate(conn)
+    os.chmod(path.parent, 0o700)
+    for f in (path, path.with_name(path.name + "-wal"), path.with_name(path.name + "-shm")):
+        if f.exists():
+            os.chmod(f, 0o600)
     return conn
 
 

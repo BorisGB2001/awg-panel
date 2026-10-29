@@ -27,7 +27,8 @@ services:
     logging: *logging
 
   caddy:
-    image: caddy:2.10
+    # boris.gb 2026-10-29 17:14 - 2.10 → 2.11.7: fixes for known Caddy advisories (reverse_proxy hop-by-hop headers and others)
+    image: caddy:2.11.7
     container_name: awg-panel-caddy
     restart: unless-stopped
     # host net: Caddy listens on host ports 80 and PANEL_PORT and proxies to 127.0.0.1:8080
