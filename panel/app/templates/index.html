@@ -30,7 +30,7 @@
   <div class="head">
     <h1>{{ _("Clients") }}</h1>
     {% include "group_filter.html" %}
-    <input type="search" id="filter" placeholder="{{ _("Search by name or IP") }}" aria-label="{{ _("Search") }}">
+    <input type="search" id="filter" placeholder="{{ _("Name, IP or group") }}" aria-label="{{ _("Search") }}">
     <select id="status-filter" aria-label="{{ _("Status") }}"><option value="">{{ _("all statuses") }}</option>
       {% for k in STATUS_KEYS %}<option value="{{ k }}">{{ status_name(k) }}</option>{% endfor %}</select>
     <details class="add">
@@ -61,7 +61,7 @@
       <tr data-status="{{ c.status }}">
         <td><span class="st st-{{ c.status }}">{{ status_name(c.status) }}</span>
           {% if c.session_start %}<div class="muted small">{{ (now - c.session_start)|duration }}</div>{% endif %}</td>
-        <td><a href="/peer/{{ c.id }}">{{ c.name }}</a></td>
+        <td><a href="/peer/{{ c.id }}">{{ c.name }}</a>{% if c.group_name %}<div class="muted small">{{ c.group_name }}</div>{% endif %}</td>
         <td><code>{{ c.ip }}</code></td>
         <td data-v="{{ c.last_handshake or 0 }}">{{ c.last_handshake|ago(now) }}</td>
         <td>{% if c.last_endpoint %}{{ c.country|flag }} <code>{{ c.last_endpoint }}</code>

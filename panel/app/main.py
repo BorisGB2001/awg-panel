@@ -355,8 +355,9 @@ CLIENTS_SQL = """
 SELECT p.id, p.name, p.ip, p.disabled, p.created_at, p.last_handshake, p.last_endpoint, p.rx_total, p.tx_total,
        e.country, e.city, e.org,
        COALESCE(t.rx, 0) AS rx_today, COALESCE(t.tx, 0) AS tx_today,
-       s.start AS session_start
+       s.start AS session_start, g.name AS group_name
 FROM peers p
+LEFT JOIN groups g ON g.id = p.group_id
 LEFT JOIN endpoints e ON e.peer_id = p.id AND e.ip = p.last_endpoint
 LEFT JOIN (SELECT peer_id, SUM(rx) rx, SUM(tx) tx FROM traffic_hour WHERE ts >= ? GROUP BY peer_id) t ON t.peer_id = p.id
 LEFT JOIN sessions s ON s.peer_id = p.id AND s.end IS NULL

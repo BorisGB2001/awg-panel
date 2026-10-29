@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.1 — 2026-10-30
+
+- Overview: the client's group is shown under its name in the client list (the list search finds clients by group too).
+
 ## 1.5.0 — 2026-10-30
 
 - Telegram alerts for administrators: connect the panel bot on the "My account" page; new alerts (and, optionally,

@@ -128,6 +128,7 @@ def test_super_admin_group_filter_and_management(client):
     client.post("/peer/1/group", data={"csrf": tok, "group_id": str(g["id"])})
     page = client.get(f"/?group={g['id']}").text
     assert "Анна" in page and "Вера" not in page
+    assert re.search(r'Анна</a><div class="muted small">Офис Москва</div>', page)      # группа под именем
     page = client.get("/?group=0").text
     assert "Вера" in page and "Анна" not in page
     assert "Офис Москва" in client.get("/groups").text

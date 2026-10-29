@@ -164,3 +164,4 @@ details.inline-details[open] > summary { margin-bottom: 4px; }
 .head .row-form input { flex: 0 1 220px; min-width: 140px; }
 .compact-tbl { max-width: 640px; margin-bottom: 8px; }
 .head .row-form { flex-wrap: nowrap; }
+#filter { width: 220px; }

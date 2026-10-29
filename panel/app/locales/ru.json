@@ -177,7 +177,6 @@
   "Save": "Сохранить",
   "Search": "Поиск",
   "Search by domain": "Поиск по домену",
-  "Search by name or IP": "Поиск по имени или IP",
   "Send report now": "Отправить сводку сейчас",
   "Server": "Сервер",
   "Server polling": "Опрос сервера",
@@ -525,5 +524,6 @@
   "quota, bytes": "квота, байт",
   "to": "до",
   "uploaded this month, bytes": "отдано за месяц, байт",
-  "uploaded today, bytes": "отдано сегодня, байт"
+  "uploaded today, bytes": "отдано сегодня, байт",
+  "Name, IP or group": "Имя, IP или группа"
 }
