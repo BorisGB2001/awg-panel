@@ -26,6 +26,18 @@
     <dt>{{ _("Today") }}</dt><dd>↓ {{ peer.tx_today|size }} · ↑ {{ peer.rx_today|size }}</dd>
     <dt>{{ _("Total") }}</dt><dd>↓ {{ peer.tx_total|size }} · ↑ {{ peer.rx_total|size }}</dd>
     {% if extra.note %}<dt>{{ _("Note") }}</dt><dd>{{ extra.note }}</dd>{% endif %}
+    <dt>{{ _("Quota") }}</dt><dd>
+      {% set q = quota %}{% include "quota_bar.html" %}
+      {% if group_quota %}<div class="muted small">{{ _("Group quota «{name}»:", name=peer_group.name) }}</div>{% set q = group_quota %}{% include "quota_bar.html" %}{% endif %}
+      {% if extra.quota_blocked %}<div class="warn small">{{ _("Disabled by quota until the next period. “Enable” turns it on now.") }}</div>{% endif %}
+      {% if not extra.deleted_at %}
+      <form method="post" action="/peer/{{ peer.id }}/quota" class="quota-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label class="check">{{ _("Quota, GiB") }} <input name="gib" inputmode="decimal" value="{{ '%g'|format(extra.quota_bytes / 1073741824) if extra.quota_bytes else '' }}" placeholder="{{ _("none") }}"></label>
+        <select name="period" aria-label="{{ _("Period") }}">{% for k, v in PERIOD_NAMES.items() %}<option value="{{ k }}"{% if k == extra.quota_period %} selected{% endif %}>{{ _("per") }} {{ _(v) }}</option>{% endfor %}</select>
+        <select name="action" aria-label="{{ _("When exceeded") }}">{% for k, v in ACTION_NAMES.items() %}<option value="{{ k }}"{% if k == extra.quota_action %} selected{% endif %}>{{ _(v) }}</option>{% endfor %}</select>
+        <button type="submit" class="secondary small-btn">{{ _("Save quota") }}</button>
+      </form>{% endif %}</dd>
   </dl>
 </section>
 

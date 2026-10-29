@@ -175,6 +175,16 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (admin_id, group_id)
     );
     """,
+    # 9: квоты трафика на группы и клиентов (байты за день или месяц; действие: alert | disable)
+    """
+    ALTER TABLE groups ADD COLUMN quota_bytes INT;
+    ALTER TABLE groups ADD COLUMN quota_period TEXT NOT NULL DEFAULT 'month';
+    ALTER TABLE groups ADD COLUMN quota_action TEXT NOT NULL DEFAULT 'alert';
+    ALTER TABLE peers ADD COLUMN quota_bytes INT;
+    ALTER TABLE peers ADD COLUMN quota_period TEXT NOT NULL DEFAULT 'month';
+    ALTER TABLE peers ADD COLUMN quota_action TEXT NOT NULL DEFAULT 'alert';
+    ALTER TABLE peers ADD COLUMN quota_blocked TEXT;
+    """,
 ]
 
 

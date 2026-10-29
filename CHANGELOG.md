@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.0 — 2026-10-30
+
+- Traffic quotas per group and per client: a limit in GiB per day or calendar month (downloaded + uploaded).
+- Alerts at 80 % and 100 %, once per period (again if the limit is raised). Action when exceeded: alert only, or
+  disable the clients until the next period; they are enabled again automatically when the period changes or the
+  limit is raised. A client enabled by hand is not disabled again in the same period.
+- Usage bars on the Groups page and the client card; group quotas are set by super administrators, client quotas
+  also by the client's group administrator.
+
 ## 1.3.0 — 2026-10-30
 
 - Client groups: Groups page (clients, online, traffic today and this month, administrators per group), create,

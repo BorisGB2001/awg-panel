@@ -38,9 +38,12 @@ EVENT_NAMES = {
     "acct_password": N_("administrator changed password"), "acct_totp_bound": N_("administrator set up the authenticator"),
     "group_created": N_("group created"), "group_renamed": N_("group renamed"), "group_deleted": N_("group deleted"),
     "group_member": N_("moved to a group"), "acct_groups": N_("administrator groups changed"),
+    "alert_quota": N_("traffic quota"), "quota_set": N_("quota changed"),
     "client_view": N_("client portal opened"), "contact_telegram": N_("Telegram connected"), "contact_email": N_("e-mail confirmed"),
 }
 
+PERIOD_NAMES = {"month": N_("month"), "day": N_("day")}
+ACTION_NAMES = {"alert": N_("alert only"), "disable": N_("disable clients until the period ends")}
 ROLE_NAMES = {"super": N_("super administrator"), "group": N_("group administrator")}
 
 STATUS_KEYS = ("online", "recent", "idle", "never", "disabled")
@@ -135,6 +138,18 @@ def event_text(kind: str, detail: str | None) -> str:
                    "conntrack": t("connection table {count}/{max}", count=d.get("count"), max=d.get("max")),
                    "smtp": t("e-mail sending failed: {error}", error=d.get("error"))}
         return f"{name}: {reasons.get(d.get('reason'), d.get('reason'))}"
+    if kind == "alert_quota":
+        text = t("{who}: {used} of {limit} per {period} ({level} %)", who=(t("group «{name}»", name=d.get("name"))
+                 if d.get("scope") == "group" else d.get("name")), used=size(d.get("used")), limit=size(d.get("limit")),
+                 period=t(PERIOD_NAMES.get(d.get("period"), "month")), level=d.get("level"))
+        if d.get("level") == 100 and d.get("action") == "disable":
+            text += " — " + t("clients disabled until the next period")
+        return f"{name}: {text}"
+    if kind == "quota_set":
+        if not d.get("limit"):
+            return f"{name}: " + (t("group «{name}»", name=d["group"]) + " — " if d.get("group") else "") + t("no quota")
+        return f"{name}: " + (t("group «{name}»", name=d["group"]) + " — " if d.get("group") else "") + \
+            t("{limit} per {period}", limit=size(d.get("limit")), period=t(PERIOD_NAMES.get(d.get("period"), "month")))
     if kind == "alert_shared_config":
         return f"{name}: " + t("{n} IP changes in 30 min, providers: {providers}", n=d.get("changes"),
                                providers=", ".join(d.get("providers", [])))
@@ -163,5 +178,5 @@ def base_domain(name: str) -> str:
 
 def register(env) -> None:
     env.filters.update(size=size, dt=dt, ago=ago, duration=duration, flag=flag, base_domain=base_domain)
-    env.globals.update(event_text=event_text, status_name=status_name, STATUS_KEYS=STATUS_KEYS, _=t, N_=N_, VERSION=__version__, ROLE_NAMES=ROLE_NAMES,
+    env.globals.update(event_text=event_text, status_name=status_name, STATUS_KEYS=STATUS_KEYS, _=t, N_=N_, VERSION=__version__, ROLE_NAMES=ROLE_NAMES, PERIOD_NAMES=PERIOD_NAMES, ACTION_NAMES=ACTION_NAMES,
                        languages=i18n.languages)

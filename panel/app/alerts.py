@@ -15,6 +15,7 @@ import time
 from . import db
 from .awgctl import AWG, AwgUnavailable
 from .config import Settings
+from .quotas import Quotas
 
 log = logging.getLogger("alerts")
 
@@ -33,6 +34,7 @@ class Alerts:
         self.shared_window = _env_int("ALERT_SHARED_WINDOW_MIN", 30) * 60
         self.spike_factor = _env_int("ALERT_SPIKE_FACTOR", 5)
         self.spike_min = _env_int("ALERT_SPIKE_MIN_BYTES", 1 << 30)
+        self.quotas = Quotas(conn)
 
     def recent(self, kind: str, peer_id: int | None, within: int, now: int) -> bool:
         return self.conn.execute("SELECT 1 FROM events WHERE kind = ? AND peer_id IS ? AND ts >= ? LIMIT 1",
@@ -120,6 +122,10 @@ class Alerts:
         now = int(time.time()) if now is None else now
         self.check_shared(now)
         self.check_spike(now)
+        if self.awg and self.quotas.manager is None:
+            from .manage import Manager      # отключение и включение клиентов по квоте
+            self.quotas.manager = Manager(self.s, self.awg, self.conn)
+        self.quotas.check(now)
         self.check_weekly(now)
         self.check_server(now)
 

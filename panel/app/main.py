@@ -20,7 +20,7 @@ from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import __version__, admins, auth, charts, groups, clientconf, db, fmt, i18n, maintenance, monthly, notify, portal, report
+from . import __version__, admins, auth, charts, groups, quotas, clientconf, db, fmt, i18n, maintenance, monthly, notify, portal, report
 from .fmt import N_
 from .i18n import t
 from .awgctl import AWG, AwgUnavailable
@@ -30,6 +30,7 @@ from .config import settings
 from .geo import Geo
 from .admins import AdminError
 from .groups import GroupError
+from .quotas import QuotaError
 from .manage import Manager, ManageError, load_fernet
 from .flows import Flows
 from .names import NameCache
@@ -458,6 +459,17 @@ def peer_add(request: Request, name: str = Form(""), note: str = Form(""), group
     return manage_action(request, csrf, go, t("Client “{name}” added.", name=name.strip()), "/", lambda pid: f"/peer/{pid}")
 
 
+@app.post("/peer/{peer_id}/quota")
+def peer_quota(request: Request, peer_id: int, gib: str = Form(""), period: str = Form("month"), action: str = Form("alert"),
+               csrf: str = Form("")):
+    def go(**kw):
+        try:
+            quotas.set_peer_quota(request.app.state.db, peer_id, gib, period, action, **kw)
+        except QuotaError as e:
+            raise ManageError(str(e)) from e
+    return manage_action(request, csrf, go, t("Quota saved."), f"/peer/{peer_id}")
+
+
 @app.post("/peer/{peer_id}/group")
 def peer_group(request: Request, peer_id: int, group_id: str = Form(""), csrf: str = Form("")):
     def go(**kw):
@@ -499,8 +511,11 @@ def peer_page(request: Request, peer_id: int, days: int = 1):
     if row is None:
         raise HTTPException(404)
     peer = dict(row) | {"status": fmt.status(row, now, settings.online_window)}
-    extra = conn.execute("SELECT pubkey, note, source, deleted_at, group_id, private_key_enc IS NOT NULL AS has_key "
-                         "FROM peers WHERE id = ?", (peer_id,)).fetchone()
+    extra = conn.execute("SELECT pubkey, note, source, deleted_at, group_id, quota_bytes, quota_period, quota_action, "
+                         "quota_blocked, private_key_enc IS NOT NULL AS has_key FROM peers WHERE id = ?", (peer_id,)).fetchone()
+    pg = groups.get(conn, extra["group_id"]) if extra["group_id"] else None
+    quota = quotas.status(conn, extra["quota_bytes"], extra["quota_period"], peer_id, now)
+    group_quota = quotas.status(conn, pg["quota_bytes"], pg["quota_period"], groups.peers_of(conn, {pg["id"]}), now) if pg else None
     sessions = conn.execute("SELECT s.*, e.country, e.org FROM sessions s LEFT JOIN endpoints e "
                             "ON e.peer_id = s.peer_id AND e.ip = s.endpoint_ip WHERE s.peer_id = ? ORDER BY s.start DESC LIMIT 50",
                             (peer_id,)).fetchall()
@@ -519,7 +534,7 @@ def peer_page(request: Request, peer_id: int, days: int = 1):
     bucket, label = charts.RANGES[days]
     contact = portal.contact(conn, peer_id)
     return render(request, "peer.html", contact=contact, portal_on=extra_portal(conn, peer_id),
-                  group_list=group_choices(request), peer_group=groups.get(conn, extra["group_id"]) if extra["group_id"] else None,
+                  group_list=group_choices(request), peer_group=pg, quota=quota, group_quota=group_quota,
                   portal_config=conn.execute("SELECT portal_config FROM peers WHERE id = ?", (peer_id,)).fetchone()[0],
                   notifier=request.app.state.notifier, peer=peer, extra=extra, sessions=sessions, endpoints=endpoints,
                   events=events, now=now, days=days, sites=site_rows, dnslog=dnslog,
@@ -858,7 +873,8 @@ def group_rows(request: Request) -> list[dict]:
             (fmt.day_start(now), fmt.day_start(now), g["id"], m_start)).fetchone()
         online = conn.execute("SELECT COUNT(*) FROM peers WHERE group_id = ? AND deleted_at IS NULL AND disabled = 0 "
                               "AND last_handshake >= ?", (g["id"], online_since)).fetchone()[0]
-        out.append(dict(g) | dict(stat) | {"online": online, "admins": admins_by.get(g["id"], [])})
+        quota = quotas.status(conn, g["quota_bytes"], g["quota_period"], groups.peers_of(conn, {g["id"]}), now)
+        out.append(dict(g) | dict(stat) | {"online": online, "admins": admins_by.get(g["id"], []), "quota": quota})
     return out
 
 
@@ -874,7 +890,7 @@ def group_action(request: Request, csrf: str, fn, ok: str) -> RedirectResponse:
     check_csrf(request, csrf)
     try:
         fn(actor=current_user(request), actor_ip=client_ip(request))
-    except GroupError as e:
+    except (GroupError, QuotaError) as e:
         flash(request, str(e), "error")
         return RedirectResponse("/groups", status_code=303)
     flash(request, ok)
@@ -891,6 +907,13 @@ def groups_add(request: Request, name: str = Form(""), note: str = Form(""), csr
 def groups_update(request: Request, group_id: int, name: str = Form(""), note: str = Form(""), csrf: str = Form("")):
     return group_action(request, csrf, lambda **kw: groups.update(request.app.state.db, group_id, name, note, **kw),
                         t("Group saved."))
+
+
+@app.post("/groups/{group_id}/quota")
+def groups_quota(request: Request, group_id: int, gib: str = Form(""), period: str = Form("month"),
+                 action: str = Form("alert"), csrf: str = Form("")):
+    return group_action(request, csrf, lambda **kw: quotas.set_group_quota(request.app.state.db, group_id, gib, period, action, **kw),
+                        t("Quota saved."))
 
 
 @app.post("/groups/{group_id}/delete")
