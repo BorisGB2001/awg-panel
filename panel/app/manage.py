@@ -236,6 +236,36 @@ class Manager:
             self.conn.execute("UPDATE sessions SET end = COALESCE(last_active, start) WHERE peer_id = ? AND end IS NULL", (peer_id,))
             db.event(self.conn, "admin_delete", peer_id, {"name": row["name"], "ip": row["ip"]}, actor, actor_ip, now)
 
+    def rekey(self, peer_id: int, actor: str | None = None, actor_ip: str | None = None) -> None:
+        """Новые ключи клиента с тем же IP: старый конфиг перестаёт работать, новый выдаёт панель.
+
+        Так же получают конфиг клиенты, созданные в приложении AmneziaVPN (их приватный ключ есть только на устройстве).
+        Отключённому клиенту меняется только ключ в БД — на интерфейс он вернётся при включении уже с новым.
+        """
+        with self.awg.locked():
+            row = self._peer(peer_id)
+            priv, pub = gen_keypair()
+            if not row["disabled"]:
+                psk = self.awg.psk()
+
+                def build(conf, clients):
+                    if not conf.remove_peer(row["pubkey"]):
+                        raise ManageError(t("the client is not in awg0.conf"))
+                    conf.add_peer(pub, psk, row["ip"])
+                    for c in clients:
+                        if c.get("clientId") == row["pubkey"]:
+                            c["clientId"] = pub          # имя и дата создания в приложении AmneziaVPN остаются
+                            break
+                    else:
+                        clients.append(awgconf.client_entry(pub, row["ip"], row["name"]))
+                    return Change(conf, clients, [("remove", row["pubkey"], ""), ("set", pub, row["ip"])])
+
+                self._apply("rekey", build)
+            self.conn.execute("UPDATE peers SET pubkey = ?, private_key_enc = ? WHERE id = ?",
+                              (pub, self.fernet.encrypt(priv.encode()), peer_id))
+            self.conn.execute("UPDATE sessions SET end = COALESCE(last_active, start) WHERE peer_id = ? AND end IS NULL", (peer_id,))
+            db.event(self.conn, "admin_rekey", peer_id, {"name": row["name"], "ip": row["ip"]}, actor, actor_ip)
+
     def disable(self, peer_id: int, actor: str | None = None, actor_ip: str | None = None) -> None:
         with self.awg.locked():
             row = self._peer(peer_id)

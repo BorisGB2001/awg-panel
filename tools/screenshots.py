@@ -40,6 +40,7 @@ UA = "awg-panel-screenshots"   # сессия панели привязана к
 PAGES = [
     ("overview", "/", "Overview"),
     ("client", "/peer/1", "Client card"),
+    ("config", "/peer/1/config", "Config, QR and sending"),
     ("sites", "/hosts?days=7", "Sites"),
     ("events", "/events", "Events"),
     ("archive", "/archive", "Monthly archive"),
@@ -196,6 +197,12 @@ class FakeAWG:
     def run(self, args, mount=True, input=None, timeout=15):
         return "amneziawg-tools v1.0.20260101 - https://amnezia.org\n" if args[0] == "awg" else "823\n65536\n"
 
+    def server_public_key(self):
+        return base64.b64encode(b"demo-server-public-key-32-bytes!").decode()
+
+    def psk(self):
+        return base64.b64encode(b"demo-preshared-key-32-bytes-123!").decode()
+
     def read_conf(self):
         from app.awgconf import AwgConf
         return AwgConf.parse(self.CONF)
@@ -272,6 +279,12 @@ def main() -> None:
     now = int(time.time())
     conn = db.open_db(panel.settings.db_path)
     seed(conn, now, auth.hash_password(pw), load_fernet(panel.settings))
+    from app.manage import gen_keypair
+    priv, pub = gen_keypair()   # у демо-клиента 1 есть ключ — для страницы конфига
+    conn.execute("UPDATE peers SET pubkey = ?, private_key_enc = ? WHERE id = 1",
+                 (pub, load_fernet(panel.settings).encrypt(priv.encode())))
+    portal.contact(conn, 1)
+    conn.execute("UPDATE contacts SET tg_chat_id = 1, tg_name = '@alice' WHERE peer_id = 1")
     portal_token = portal.issue_link(conn, 1, "admin", None)
     conn.execute("UPDATE peers SET portal_config = 1 WHERE id = 1")
     conn.close()
@@ -301,6 +314,7 @@ def main() -> None:
     st.sniffer = SimpleNamespace(last_error=None, packets=184_220)
     st.flows = SimpleNamespace(last_error=None, events=96_410)
     st.blocker = SimpleNamespace(last_error=None, applied_rules=18)
+    panel.tg_bot_name = lambda request: "awg_panel_demo_bot"   # без сети: имя бота для страниц
     with httpx.Client(base_url=base, headers={"User-Agent": UA}, follow_redirects=True) as c:
         csrf = re.search(r'name="csrf" value="([^"]+)"', c.get("/login").text).group(1)
         r = c.post("/login", data={"username": "admin", "password": pw, "code": pyotp.TOTP(secret).now(), "csrf": csrf})

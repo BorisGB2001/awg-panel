@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
 import sqlite3
 import time
@@ -62,6 +63,9 @@ def unbind_telegram(conn: sqlite3.Connection, chat_id: int) -> int:
     return conn.execute("UPDATE contacts SET tg_chat_id = NULL, tg_name = NULL WHERE tg_chat_id = ?", (chat_id,)).rowcount
 
 
+EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+
 def set_email(conn: sqlite3.Connection, peer_id: int, email: str) -> str | None:
     """Новый адрес требует подтверждения; возвращает код для письма (None — адрес удалён)."""
     contact(conn, peer_id)
@@ -69,7 +73,7 @@ def set_email(conn: sqlite3.Connection, peer_id: int, email: str) -> str | None:
     if not email:
         conn.execute("UPDATE contacts SET email = NULL, email_verified = 0, email_code = NULL WHERE peer_id = ?", (peer_id,))
         return None
-    if "@" not in email or "." not in email.split("@")[-1] or " " in email:
+    if not EMAIL_RE.fullmatch(email):
         raise ValueError(t("Invalid e-mail."))
     code = secrets.token_urlsafe(24)
     conn.execute("UPDATE contacts SET email = ?, email_verified = 0, email_code = ? WHERE peer_id = ?", (email, code, peer_id))
@@ -89,3 +93,28 @@ def set_prefs(conn: sqlite3.Connection, peer_id: int, daily: bool, hour: int, ev
     contact(conn, peer_id)
     conn.execute("UPDATE contacts SET daily = ?, daily_hour = ?, events = ? WHERE peer_id = ?",
                  (int(daily), max(0, min(23, hour)), int(events), peer_id))
+
+
+CFG_PREFIX = "cfg_"          # коды привязки из кабинета — без «_», по префиксу бот их различает
+CFG_CODE_TTL = 7 * 86400
+
+
+def config_link_code(conn: sqlite3.Connection, peer_id: int) -> str:
+    """Одноразовый код для t.me/<бот>?start=cfg_<код> (7 дней): бот пришлёт клиенту конфиг и подключит уведомления."""
+    contact(conn, peer_id)
+    code = secrets.token_hex(12)
+    conn.execute("UPDATE contacts SET cfg_code = ?, cfg_code_exp = ? WHERE peer_id = ?", (code, int(time.time()) + CFG_CODE_TTL, peer_id))
+    return CFG_PREFIX + code
+
+
+def take_config_code(conn: sqlite3.Connection, start: str, chat_id: int, name: str) -> sqlite3.Row | None:
+    """Код из ссылки → клиент; чат привязывается к клиенту, код гасится."""
+    if not start.startswith(CFG_PREFIX):
+        return None
+    row = conn.execute("SELECT c.peer_id, p.name FROM contacts c JOIN peers p ON p.id = c.peer_id WHERE c.cfg_code = ? "
+                       "AND c.cfg_code_exp >= ? AND p.deleted_at IS NULL", (start[len(CFG_PREFIX):], int(time.time()))).fetchone()
+    if not row:
+        return None
+    conn.execute("UPDATE contacts SET tg_chat_id = ?, tg_name = ?, cfg_code = NULL WHERE peer_id = ?", (chat_id, name, row["peer_id"]))
+    db.event(conn, "contact_telegram", row["peer_id"], {"name": name})
+    return row

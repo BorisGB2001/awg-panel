@@ -167,3 +167,40 @@ def test_backups_are_private_and_rotated(env, monkeypatch):
     dirs = sorted(root.iterdir())
     assert len(dirs) == 3 and stat.S_IMODE(root.stat().st_mode) == 0o700
     assert stat.S_IMODE((dirs[-1] / "f").stat().st_mode) == 0o600
+
+
+def test_rekey_keeps_ip_and_replaces_key_everywhere(env):
+    m, awg, d, conn = env
+    pid = pid_of(conn, "Анна")                                   # создан в приложении: приватного ключа нет
+    assert m.private_key(pid) is None
+    m.rekey(pid, actor="admin")
+    row = conn.execute("SELECT pubkey, ip FROM peers WHERE id = ?", (pid,)).fetchone()
+    assert row["pubkey"] != K("a") and row["ip"] == "10.8.1.1"
+    text = (d / "awg0.conf").read_text()
+    assert K("a") not in text and f"PublicKey = {row['pubkey']}" in text and "AllowedIPs = 10.8.1.1/32" in text
+    cl = awgconf.clients_by_key(json.loads((d / "clientsTable").read_text()))
+    assert row["pubkey"] in cl and cl[row["pubkey"]]["clientName"] == "Анна" and K("a") not in cl
+    assert awg.iface.get(row["pubkey"]) == "10.8.1.1/32" and K("a") not in awg.iface and K("b") in awg.iface
+    assert len(base64.b64decode(m.private_key(pid))) == 32
+    assert conn.execute("SELECT kind FROM events ORDER BY id DESC").fetchone()[0] == "admin_rekey"
+
+
+def test_rekey_disabled_client_only_in_db(env):
+    m, awg, d, conn = env
+    pid = pid_of(conn, "Борис")
+    m.disable(pid)
+    before = (d / "awg0.conf").read_text()
+    m.rekey(pid)
+    assert (d / "awg0.conf").read_text() == before                      # на сервере его нет — файлы не трогаем
+    new = conn.execute("SELECT pubkey FROM peers WHERE id = ?", (pid,)).fetchone()[0]
+    m.enable(pid)
+    assert awg.iface.get(new) == "10.8.1.5/32"                          # вернулся уже с новым ключом
+
+
+def test_rekey_rollback(env):
+    m, awg, d, conn = env
+    pid = pid_of(conn, "Анна")
+    awg.fail_set = True
+    with pytest.raises(ManageError):
+        m.rekey(pid)
+    assert (d / "awg0.conf").read_text() == CONF and conn.execute("SELECT pubkey FROM peers WHERE id = ?", (pid,)).fetchone()[0] == K("a")

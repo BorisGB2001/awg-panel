@@ -65,6 +65,7 @@ async def lifespan(app: FastAPI):
         threading.Thread(target=monthly.run, args=(db.open_db(settings.db_path), fmt.TZ, app.state.stop),
                          name="monthly", daemon=True).start()
         app.state.notifier = notify.Notifier(settings, db.open_db(settings.db_path))
+        attach_config(app.state.notifier)
         threading.Thread(target=app.state.notifier.run, args=(app.state.stop,), name="notify", daemon=True).start()
         app.state.blocker = Blocker(settings, AWG(settings), db.open_db(settings.db_path))
         threading.Thread(target=app.state.blocker.run, args=(app.state.stop,), name="blocker", daemon=True).start()
@@ -457,7 +458,7 @@ def peer_add(request: Request, name: str = Form(""), note: str = Form(""), group
         if gid is not None:
             groups.set_peer_group(request.app.state.db, pid, gid, **kw)
         return pid
-    return manage_action(request, csrf, go, t("Client “{name}” added.", name=name.strip()), "/", lambda pid: f"/peer/{pid}")
+    return manage_action(request, csrf, go, t("Client “{name}” added.", name=name.strip()), "/", lambda pid: f"/peer/{pid}/config")
 
 
 @app.post("/peer/{peer_id}/quota")
@@ -544,14 +545,12 @@ def peer_page(request: Request, peer_id: int, days: int = 1):
                   heat=charts.heatmap(charts.activity_cells(conn, peer_id, now - 30 * 86400, fmt.TZ)))
 
 
-def client_config(request: Request, peer_id: int) -> dict:
-    """.conf и vpn:// клиента; только для созданных в панели (приватный ключ есть только у нас)."""
-    m = manager(request)
-    row = request.app.state.db.execute("SELECT name, ip, pubkey, deleted_at, disabled FROM peers WHERE id = ?",
-                                       (peer_id,)).fetchone()
+def build_config(m: Manager, peer_id: int) -> dict | None:
+    """.conf и vpn:// клиента или None, если приватного ключа у панели нет (клиент из приложения AmneziaVPN)."""
+    row = m.conn.execute("SELECT name, ip, pubkey, deleted_at, disabled FROM peers WHERE id = ?", (peer_id,)).fetchone()
     priv = m.private_key(peer_id) if row and not row["deleted_at"] else None
     if not priv:
-        raise HTTPException(404, t("This client's private key exists only on its device."))
+        return None
     awg = m.awg
     conf = awg.read_conf()
     args = dict(ip=row["ip"], private_key=priv, server_public_key=awg.server_public_key(), psk=awg.psk(),
@@ -560,6 +559,14 @@ def client_config(request: Request, peer_id: int) -> dict:
     native = clientconf.render_conf(conf, **args)
     vpn = clientconf.encode_vpn(clientconf.vpn_json(conf, name=row["name"], public_key=row["pubkey"], native=native, **args))
     return {"name": row["name"], "ip": row["ip"], "conf": native, "vpn": vpn, "disabled": row["disabled"]}
+
+
+def client_config(request: Request, peer_id: int) -> dict:
+    """.conf и vpn:// клиента; только для созданных в панели (приватный ключ есть только у нас)."""
+    cfg = build_config(manager(request), peer_id)
+    if not cfg:
+        raise HTTPException(404, t("This client's private key exists only on its device."))
+    return cfg
 
 
 def content_disposition(name: str, ip: str) -> str:
@@ -571,8 +578,43 @@ def content_disposition(name: str, ip: str) -> str:
 @app.get("/peer/{peer_id}/config", response_class=HTMLResponse)
 def peer_config(request: Request, peer_id: int):
     cfg = client_config(request, peer_id)
-    db.event(request.app.state.db, "admin_config_view", peer_id, None, current_user(request), client_ip(request))
-    return render(request, "config.html", peer_id=peer_id, cfg=cfg)
+    conn = request.app.state.db
+    db.event(conn, "admin_config_view", peer_id, None, current_user(request), client_ip(request))
+    link = request.session.pop("botlink", None)
+    n = notifier(request)
+    return render(request, "config.html", peer_id=peer_id, cfg=cfg, contact=portal.contact(conn, peer_id),
+                  tg_bot=tg_bot_name(request), email_on=n.email_on,
+                  botlink=link["url"] if link and link.get("peer") == peer_id else None)
+
+
+@app.post("/peer/{peer_id}/rekey")
+def peer_rekey(request: Request, peer_id: int, csrf: str = Form("")):
+    return manage_action(request, csrf, lambda **kw: manager(request).rekey(peer_id, **kw),
+                         t("New keys issued: the old config no longer works, send the new one to the client."),
+                         f"/peer/{peer_id}", lambda _: f"/peer/{peer_id}/config")
+
+
+@app.post("/peer/{peer_id}/send")
+def peer_send(request: Request, peer_id: int, channel: str = Form(""), to: str = Form(""), csrf: str = Form("")):
+    check_csrf(request, csrf)
+    try:
+        where = notifier(request).send_config(peer_id, channel, to, current_user(request), client_ip(request))
+        flash(request, t("Config sent: {to}.", to=where))
+    except Exception as e:  # noqa: BLE001 — показать причину (нет Telegram, ошибка SMTP и т. п.)
+        flash(request, t("Not sent: {error}", error=e), "error")
+    return RedirectResponse(f"/peer/{peer_id}/config", status_code=303)
+
+
+@app.post("/peer/{peer_id}/botlink")
+def peer_botlink(request: Request, peer_id: int, csrf: str = Form("")):
+    check_csrf(request, csrf)
+    bot = tg_bot_name(request)
+    if not bot:
+        raise HTTPException(404)
+    code = portal.config_link_code(request.app.state.db, peer_id)
+    db.event(request.app.state.db, "config_link_issued", peer_id, None, current_user(request), client_ip(request))
+    request.session["botlink"] = {"peer": peer_id, "url": f"https://t.me/{bot}?start={code}"}   # показывается один раз
+    return RedirectResponse(f"/peer/{peer_id}/config#send", status_code=303)
 
 
 @app.get("/peer/{peer_id}/config.conf")
@@ -1128,7 +1170,13 @@ def notifier(request: Request) -> notify.Notifier:
     n = request.app.state.notifier
     if n is None:
         n = request.app.state.notifier = notify.Notifier(settings, request.app.state.db)
+        attach_config(n)
     return n
+
+
+def attach_config(n: notify.Notifier) -> None:
+    """Боту и отправке нужен конфиг клиента — собирается через AmneziaWG на соединении уведомлений."""
+    n.config_for = lambda peer_id: build_config(Manager(settings, AWG(settings), n.conn), peer_id)
 
 
 @app.post("/peer/{peer_id}/portal")

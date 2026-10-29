@@ -40,6 +40,7 @@ EVENT_NAMES = {
     "group_member": N_("moved to a group"), "acct_groups": N_("administrator groups changed"),
     "acct_telegram": N_("administrator connected Telegram"),
     "alert_quota": N_("traffic quota"), "quota_set": N_("quota changed"),
+    "admin_rekey": N_("new keys issued"), "config_sent": N_("config sent"), "config_link_issued": N_("bot link for the config created"),
     "client_view": N_("client portal opened"), "contact_telegram": N_("Telegram connected"), "contact_email": N_("e-mail confirmed"),
 }
 
@@ -122,7 +123,9 @@ def event_text(kind: str, detail: str | None) -> str:
         return f"{name}, {duration(d.get('duration'))}, ↓{size(d.get('tx'))} ↑{size(d.get('rx'))}"
     if kind == "endpoint_change":
         return f"{name}: {d.get('from')} → {d.get('to')} {flag(d.get('country'))} {d.get('org') or ''}".strip()
-    if kind in ("admin_add", "admin_delete", "admin_disable", "admin_enable"):
+    if kind == "config_sent":
+        return f"{name}: {d.get('channel')} → {d.get('to')}"
+    if kind in ("admin_add", "admin_delete", "admin_disable", "admin_enable", "admin_rekey"):
         return f"{name}: {d.get('name')} ({d.get('ip')})"
     if kind.startswith("block_"):
         return f"{name}: {d.get('value')}" + (" " + t("(preset {name})", name=d["preset"]) if d.get("preset") else "")

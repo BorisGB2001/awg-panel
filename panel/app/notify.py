@@ -71,15 +71,22 @@ class Telegram:
     def send_photo(self, chat_id: int, png: bytes, caption: str) -> None:
         self.call("sendPhoto", {"chat_id": chat_id, "caption": caption[:1000]}, {"photo": ("stats.png", png, "image/png")})
 
+    def send_document(self, chat_id: int, name: str, data: bytes, caption: str = "") -> None:
+        self.call("sendDocument", {"chat_id": chat_id, "caption": caption[:1000]}, {"document": (name, data, "text/plain")})
+
 
 # ---- e-mail ----
 
-def send_email(s: Settings, to: str, subject: str, text: str, png: bytes | None = None) -> None:
+def send_email(s: Settings, to: str, subject: str, text: str, png: bytes | None = None,
+               files: list[tuple[str, bytes, str, str]] | None = None) -> None:
+    """files — вложения (имя, данные, maintype, subtype)."""
     msg = EmailMessage()
     msg["From"], msg["To"], msg["Subject"] = s.smtp_from or s.smtp_user, to, subject
     msg.set_content(text)
     if png:
         msg.add_attachment(png, maintype="image", subtype="png", filename="stats.png")
+    for name, data, main, sub in files or []:
+        msg.add_attachment(data, maintype=main, subtype=sub, filename=name)
     ctx = ssl.create_default_context()
     if s.smtp_ssl or s.smtp_port == 465:
         with smtplib.SMTP_SSL(s.smtp_host, s.smtp_port, context=ctx, timeout=30) as m:
@@ -100,6 +107,7 @@ class Notifier:
     def __init__(self, settings: Settings, conn: sqlite3.Connection):
         self.s, self.conn = settings, conn
         self.tg = Telegram(settings.telegram_token) if settings.telegram_token else None
+        self.config_for = None   # peer_id -> {name, ip, conf, vpn} | None; задаёт main (нужен доступ к AmneziaWG)
         self.last_error: str | None = None
         self._lock = threading.Lock()
 
@@ -166,6 +174,55 @@ class Notifier:
                 with i18n.use(self.lang(r["peer_id"])):
                     self.deliver(r["peer_id"], r["kind"], "VPN: " + fmt.event_text(r["kind"], r["detail"]))
         db.set_state(self.conn, "notify_event_id", str(max(top, last)))
+
+    # ---- конфиг клиента ----
+
+    def config_text(self, cfg: dict) -> str:
+        return "\n".join([t("VPN config for “{name}” (IP {ip}).", name=cfg["name"], ip=cfg["ip"]),
+                          t("1. Install AmneziaVPN (amnezia.org) or AmneziaWG."),
+                          t("2. Import the attached .conf file or scan the QR code."),
+                          t("For the AmneziaVPN app you can also paste the vpn:// key from the next message.")])
+
+    def config_to_telegram(self, chat_id: int, cfg: dict) -> None:
+        from .clientconf import file_name, qr_png
+        self.tg.send_document(chat_id, file_name(cfg["name"], cfg["ip"]), cfg["conf"].encode(), self.config_text(cfg))
+        self.tg.send_photo(chat_id, qr_png(cfg["conf"]), t("QR code of the config"))
+        self.tg.send(chat_id, cfg["vpn"])
+
+    def config_to_email(self, to: str, cfg: dict) -> None:
+        from .clientconf import file_name, qr_png
+        conf_name = file_name(cfg["name"], cfg["ip"])
+        send_email(self.s, to, t("VPN config — {name}", name=cfg["name"]),
+                   self.config_text(cfg) + "\n\n" + cfg["vpn"] + "\n",
+                   files=[(conf_name, cfg["conf"].encode(), "text", "plain"),
+                          (conf_name.removesuffix(".conf") + "-qr.png", qr_png(cfg["conf"]), "image", "png")])
+
+    def send_config(self, peer_id: int, channel: str, to: str = "", actor: str | None = None,
+                    actor_ip: str | None = None) -> str:
+        """Отправить конфиг клиенту: channel = telegram (в привязанный чат) | email (на адрес to или подтверждённый)."""
+        cfg = self.config_for(peer_id) if self.config_for else None
+        if not cfg:
+            raise ValueError(t("This client's private key exists only on its device."))
+        c = portal.contact(self.conn, peer_id)
+        with i18n.use(self.lang(peer_id)):
+            if channel == "telegram":
+                if not self.tg or not c["tg_chat_id"]:
+                    raise ValueError(t("The client has not connected Telegram yet: send them the bot link."))
+                self.config_to_telegram(c["tg_chat_id"], cfg)
+                where = c["tg_name"] or "Telegram"
+            elif channel == "email":
+                to = (to or (c["email"] if c["email_verified"] else "") or "").strip()
+                if not self.email_on:
+                    raise ValueError(t("E-mail is not configured: add SMTP_* to .env on the server."))
+                if not portal.EMAIL_RE.fullmatch(to):
+                    raise ValueError(t("Enter a valid e-mail address."))
+                self.config_to_email(to, cfg)
+                where = to
+            else:
+                raise ValueError(channel)
+        db.event(self.conn, "config_sent", peer_id, {"channel": channel, "to": where}, actor, actor_ip)
+        self.log(peer_id, channel, "config", None)
+        return where
 
     # ---- администраторам ----
 
@@ -245,6 +302,18 @@ class Notifier:
                 with i18n.use(adm["lang"]):
                     self.tg.send(chat, t("Done: panel alerts for administrator “{name}” will come here.", name=adm["username"])
                                  + "\n" + t("/stats — summary, /stop — disconnect."))
+                return
+            got = portal.take_config_code(self.conn, code, chat, name) if code.startswith(portal.CFG_PREFIX) else None
+            if got:   # ссылка с конфигом: прислать конфиг и подключить уведомления
+                with i18n.use(self.lang(got["peer_id"])):
+                    cfg = self.config_for(got["peer_id"]) if self.config_for else None
+                    if cfg:
+                        self.config_to_telegram(chat, cfg)
+                        db.event(self.conn, "config_sent", got["peer_id"], {"channel": "telegram", "to": name})
+                    else:
+                        self.tg.send(chat, t("The config is not available, ask the administrator for a new link."))
+                    self.tg.send(chat, t("VPN notifications for “{name}” will come here too.", name=got["name"]) + "\n"
+                                 + t("/stats — today's statistics, /stop — disconnect."))
                 return
             row = portal.bind_telegram(self.conn, code, chat, name) if code else None
             if row:

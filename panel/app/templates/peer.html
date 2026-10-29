@@ -103,8 +103,11 @@
   </div>
   {% if extra.has_key %}
   <p><a class="btn" href="/peer/{{ peer.id }}/config">{{ _("Config, QR and vpn:// key") }}</a></p>
-  {% else %}
-  <p class="muted small">{{ _("The client was created in the AmneziaVPN app: its private key exists only on the device, so the panel cannot issue its config.") }}</p>
+  {% elif not extra.deleted_at %}
+  <p class="muted small">{{ _("The client was created in the AmneziaVPN app: its private key exists only on the device, so the panel cannot show that config. The panel can issue a new config (new keys, same IP) — the old one on the device stops working.") }}</p>
+  <details><summary class="btn secondary">{{ _("Issue a new config…") }}</summary>
+    <form method="post" action="/peer/{{ peer.id }}/rekey" class="row-form"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="danger">{{ _("Yes, new keys — the old config stops working") }}</button></form></details>
   {% endif %}
 </section>
 {% endif %}

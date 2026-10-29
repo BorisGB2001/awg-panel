@@ -197,6 +197,11 @@ MIGRATIONS: list[str] = [
     ALTER TABLE admins ADD COLUMN quiet_to INT;
     ALTER TABLE admins ADD COLUMN lang TEXT;
     """,
+    # 11: одноразовая ссылка на бота, по которой клиент получает свой конфиг (и подключает уведомления)
+    """
+    ALTER TABLE contacts ADD COLUMN cfg_code TEXT;
+    ALTER TABLE contacts ADD COLUMN cfg_code_exp INT;
+    """,
 ]
 
 

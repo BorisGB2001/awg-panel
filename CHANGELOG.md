@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.0 — 2026-10-30
+
+- Send the config to the client: to Telegram (if the client connected it) or by a one-time bot link valid for 7 days —
+  the client presses "Start" and gets the .conf file, QR code and vpn:// key, and notifications are connected too;
+  or by e-mail (.conf and QR attached; needs SMTP in .env).
+- Regenerate keys: a new config with the same IP, live without restarting AmneziaWG; the old config stops working.
+  Also issues a config for clients created in the AmneziaVPN app.
+- After adding a client the config page opens at once with the sending options.
+- Group administrators can do all of this for the clients of their groups.
+
 ## 1.5.1 — 2026-10-30
 
 - Overview: the client's group is shown under its name in the client list (the list search finds clients by group too).

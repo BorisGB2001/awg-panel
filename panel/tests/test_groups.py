@@ -66,7 +66,8 @@ def test_group_admin_cannot_touch_other_clients(client, world):
     tok = _csrf(client.get("/").text)
     for url in ("/peer/3", "/peer/4", "/peer/3/config", "/peer/3/qr/conf.svg", "/peer/4/config.conf"):
         assert client.get(url).status_code == 404, url
-    for url in ("/peer/3/rename", "/peer/3/disable", "/peer/3/delete", "/peer/3/group", "/peer/3/portal"):
+    for url in ("/peer/3/rename", "/peer/3/disable", "/peer/3/delete", "/peer/3/group", "/peer/3/portal",
+                "/peer/3/rekey", "/peer/3/send", "/peer/3/botlink", "/peer/3/quota"):
         assert client.post(url, data={"csrf": tok, "name": "x", "group_id": str(ga)}).status_code == 404, url
     assert client.get("/peer/1").status_code == 200
     # своего клиента в чужую группу или «без группы» — нельзя
@@ -110,7 +111,7 @@ def test_group_admin_adds_client_only_into_own_group(client, world, monkeypatch)
     client.post("/peers/add", data={"csrf": tok, "name": "Без группы", "group_id": "0"})
     assert calls == []                                            # права проверяются до создания клиента
     r = client.post("/peers/add", data={"csrf": tok, "name": "Свой", "group_id": str(ga)}, follow_redirects=False)
-    assert r.headers["location"] == "/peer/9" and calls == ["Свой"]
+    assert r.headers["location"] == "/peer/9/config" and calls == ["Свой"]
     assert conn.execute("SELECT group_id FROM peers WHERE id = 9").fetchone()[0] == ga
 
 
