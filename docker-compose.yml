@@ -1,0 +1,40 @@
+# boris.gb 2026-10-28 21:12 - AmneziaWG monitoring panel; the amnezia-awg2 container itself is never touched
+# boris.gb 2026-10-29 07:26 - comments in English (public repository)
+name: awg-panel
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+services:
+  panel:
+    # boris.gb 2026-10-28 21:16 - build in the host network: some hosts have no DNS inside the bridge build network
+    build:
+      context: ./panel
+      network: host
+    image: awg-panel:latest
+    container_name: awg-panel
+    restart: unless-stopped
+    # host net + pid: host + privileged — for nsenter into the amnezia-awg2 namespaces without docker.sock
+    network_mode: host
+    pid: host
+    privileged: true
+    env_file: .env
+    volumes:
+      - ./data:/data
+    logging: *logging
+
+  caddy:
+    image: caddy:2.10
+    container_name: awg-panel-caddy
+    restart: unless-stopped
+    # host net: Caddy listens on host ports 80 and PANEL_PORT and proxies to 127.0.0.1:8080
+    network_mode: host
+    env_file: .env
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/data:/data
+      - ./caddy/config:/config
+    logging: *logging

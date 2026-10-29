@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Server") }} — {{ _("AWG panel") }}{% endblock %}
+{% block content %}
+{% for e in info.errors %}<div class="flash flash-error">{{ e }}</div>{% endfor %}
+<section class="kpis">
+  <div class="card kpi"><div class="muted">{{ _("AmneziaWG uptime") }}</div><b>{{ (now - info.started)|duration if info.started else "—" }}</b>
+    <div class="muted small">{{ _("since {when}", when=info.started|dt("%d.%m %H:%M")) }} · PID {{ info.pid or "—" }}</div></div>
+  <div class="card kpi"><div class="muted">{{ _("Load (1/5/15 min)") }}</div><b>{{ info.load|join(" / ") if info.load else "—" }}</b><div class="muted small">{{ _("CPU cores: {n}", n=info.cpus) }}</div></div>
+  <div class="card kpi"><div class="muted">{{ _("Memory") }}</div><b>{{ info.mem[0]|size if info.mem else "—" }}</b><span class="muted"> {{ _("of {n}", n=info.mem[1]|size) if info.mem else "" }}</span></div>
+  <div class="card kpi"><div class="muted">{{ _("Disk") }}</div><b>{{ info.disk[0]|size }}</b><span class="muted"> {{ _("of {n}", n=info.disk[1]|size) }}</span></div>
+  <div class="card kpi"><div class="muted">{{ _("Connection table") }}</div><b>{{ info.conntrack[0] if info.conntrack else "—" }}</b><span class="muted"> {{ _("of {n}", n=info.conntrack[1]) if info.conntrack else "" }}</span></div>
+  <div class="card kpi"><div class="muted">{{ _("Panel database") }}</div><b>{{ info.db_size|size }}</b><div class="muted small">{{ _("DB-IP geo from {date}", date=info.geo or "—") }}</div></div>
+</section>
+
+<section class="card">
+  <h1>{{ _("Panel collectors") }}</h1>
+  <table class="tbl">
+    {% for name, st in info.collectors.items() %}
+    <tr><td>{{ _(name) }}</td>
+      <td>{% if not st %}<span class="muted">{{ _("not running") }}</span>{% elif st[1] %}<span class="error">{{ st[1] }}</span>{% else %}<span class="st st-online">{{ _("running") }}</span>{% endif %}</td>
+      <td class="muted small">{% if st and st[0] %}{{ _("last poll {when}", when=st[0]|int|ago(now)) }}{% elif st and st|length > 2 %}{{ st[2] }}{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="card">
+  <h1>AmneziaWG</h1>
+  <p class="muted small">{{ info.version or "" }}</p>
+  <dl class="props">{% for k, v in (info.params or {}).items() %}<dt>{{ k }}</dt><dd><code>{{ v }}</code></dd>{% endfor %}</dl>
+  <p class="muted small">{{ _("Read-only parameters; keys are hidden. Change them in the AmneziaVPN app (changing obfuscation parameters requires new configs for all clients).") }}</p>
+</section>
+
+<section class="card">
+  <h1>{{ _("Configuration backups") }}</h1>
+  <p class="muted small">{{ _("Before every client change the panel saves awg0.conf and clientsTable to /opt/awg-panel/data/backups (total {n}, the last 200 are kept). Latest:", n=info.backups_total) }}</p>
+  <ul class="small">{% for b in info.backups %}<li><code>{{ b }}</code></li>{% else %}<li class="muted">{{ _("none") }}</li>{% endfor %}</ul>
+</section>
+{% endblock %}

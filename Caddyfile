@@ -1,0 +1,30 @@
+# boris.gb 2026-10-28 21:12 - HTTPS for the panel by IP: Let's Encrypt certificate for an IP address, shortlived profile
+# boris.gb 2026-10-29 07:26 - comments in English (public repository)
+{
+	# boris.gb 2026-10-28 21:12 - HTTPS only, Caddy admin API disabled
+	admin off
+}
+
+# boris.gb 2026-10-29 00:35 - panel port from .env (PANEL_PORT, default 14443); the certificate still comes via ACME http-01 on :80
+https://{$PANEL_HOST}:{$PANEL_PORT:14443} {
+	tls {
+		issuer acme {
+			profile shortlived
+		}
+		# boris.gb 2026-10-28 21:12 - fallback if Let's Encrypt refuses an IP certificate: replace the issuer block
+		# with "internal" and verify the certificate fingerprint on first login
+	}
+
+	encode gzip
+	reverse_proxy 127.0.0.1:8080
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		# boris.gb 2026-10-28 22:27 - was no-referrer: browsers then sent the login form with "Origin: null" and login failed
+		Referrer-Policy "same-origin"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; form-action 'self'"
+		-Server
+	}
+}

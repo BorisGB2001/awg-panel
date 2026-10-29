@@ -1,0 +1,11 @@
+# boris.gb 2026-10-28 19:46 - client config samples contain real keys, never commit them
+samples/
+.env
+data/
+.venv/
+# boris.gb 2026-10-29 07:26 - internal spec and the real deploy target stay local (public repository)
+TZ.md
+.deploy-host
+__pycache__/
+.pytest_cache/
+.DS_Store

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Config") }}: {{ cfg.name }} — {{ _("AWG panel") }}{% endblock %}
+{% block content %}
+<p><a href="/peer/{{ peer_id }}">← {{ cfg.name }}</a></p>
+{% if cfg.disabled %}<div class="flash flash-error">{{ _("The client is disabled: the config will not work until it is enabled.") }}</div>{% endif %}
+
+<section class="card">
+  <h1>{{ _("Key for the AmneziaVPN app") }}</h1>
+  <p class="muted small">{{ _("In AmneziaVPN: “Add server” → “Paste key” or “Scan QR”.") }}</p>
+  <textarea class="key" readonly rows="4" aria-label="vpn://">{{ cfg.vpn }}</textarea>
+  <div class="qr"><img src="/peer/{{ peer_id }}/qr/vpn.svg" alt="QR vpn://" width="320" height="320"></div>
+</section>
+
+<section class="card">
+  <h1>{{ _("File for the AmneziaWG app") }}</h1>
+  <p><a class="btn" href="/peer/{{ peer_id }}/config.conf">{{ _("Download .conf") }}</a></p>
+  <div class="qr"><img src="/peer/{{ peer_id }}/qr/conf.svg" alt="QR .conf" width="320" height="320"></div>
+  <details><summary class="muted">{{ _("Show config text") }}</summary><pre class="conf">{{ cfg.conf }}</pre></details>
+</section>
+<p class="muted small">{{ _("The config contains the client's private key — give it only to the device owner. Every view is logged.") }}</p>
+{% endblock %}

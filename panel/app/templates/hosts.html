@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Sites") }} — {{ _("AWG panel") }}{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="head">
+    <h1>{{ _("Sites") }}</h1>
+    <form method="get" class="row-form"><input type="hidden" name="days" value="{{ days }}">
+      <input type="search" name="q" value="{{ q }}" placeholder="{{ _("domain") }}" aria-label="{{ _("Search by domain") }}"><button type="submit" class="secondary">{{ _("Find") }}</button></form>
+    {% with tab_anchor="&q=" ~ (q|urlencode) %}{% include "tabs.html" %}{% endwith %}
+  </div>
+  {% if not collect_hosts %}<p class="muted">{{ _("Site collection is off (COLLECT_HOSTS=false).") }}</p>{% endif %}
+  <div class="scroll">
+  <table class="tbl">
+    <thead><tr><th>{{ _("Site") }}</th><th class="num">{{ _("Clients") }}</th><th class="num">{{ _("Requests") }}</th><th class="num">{{ _("Connections") }}</th><th class="num">↓</th><th class="num">↑</th></tr></thead>
+    {% for x in rows %}
+    <tr><td><a href="/hosts/{{ x.site|urlencode }}?days={{ days }}"><b>{{ x.site }}</b></a>
+        {% if x.names|length > 1 %}<div class="muted small">{{ x.names|sort|join(", ")|truncate(140) }}</div>{% endif %}</td>
+      <td class="num">{{ x.peers|length }}</td><td class="num">{{ x.req }}</td><td class="num">{{ x.conns }}</td>
+      <td class="num">{{ x.down|size }}</td><td class="num">{{ x.up|size }}</td></tr>
+    {% else %}<tr><td class="muted">{{ _("No data.") }}</td></tr>{% endfor %}
+  </table>
+  </div>
+  <p class="muted small">{{ _("Requests are DNS and TLS (SNI); bytes are per closed connection. DoH/DoT to non-standard resolvers and QUIC without a DNS query are not visible.") }}</p>
+</section>
+{% endblock %}

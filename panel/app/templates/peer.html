@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}{{ peer.name }} — {{ _("AWG panel") }}{% endblock %}
+{% block content %}
+<p><a href="/">← {{ _("All clients") }}</a></p>
+
+<section class="card">
+  <div class="head">
+    <h1>{{ peer.name }} <span class="st st-{{ peer.status }}">{{ status_name(peer.status) }}</span>
+      {% if extra.deleted_at %}<span class="st st-disabled">{{ _("deleted {when}", when=extra.deleted_at|dt) }}</span>{% endif %}</h1>
+  </div>
+  <dl class="props">
+    <dt>{{ _("VPN IP") }}</dt><dd><code>{{ peer.ip }}</code></dd>
+    <dt>{{ _("Key") }}</dt><dd><code class="small">{{ extra.pubkey }}</code></dd>
+    <dt>{{ _("Created") }}</dt><dd>{{ peer.created_at|dt("%d.%m.%Y %H:%M") }} · {{ _("in the panel") if extra.source == "panel" else _("in the AmneziaVPN app") }}</dd>
+    <dt>{{ _("Last handshake") }}</dt><dd>{{ peer.last_handshake|ago(now) }}</dd>
+    <dt>{{ _("From") }}</dt><dd>{% if peer.last_endpoint %}{{ peer.country|flag }} <code>{{ peer.last_endpoint }}</code> {{ peer.city or "" }} {{ peer.org or "" }}{% else %}—{% endif %}</dd>
+    <dt>{{ _("Today") }}</dt><dd>↓ {{ peer.tx_today|size }} · ↑ {{ peer.rx_today|size }}</dd>
+    <dt>{{ _("Total") }}</dt><dd>↓ {{ peer.tx_total|size }} · ↑ {{ peer.rx_total|size }}</dd>
+    {% if extra.note %}<dt>{{ _("Note") }}</dt><dd>{{ extra.note }}</dd>{% endif %}
+  </dl>
+</section>
+
+{% if not extra.deleted_at %}
+<section class="card" id="portal">
+  <h1>{{ _("Client portal") }}</h1>
+  <p>{{ _("Link") }}: {% if portal_on %}<b>{{ _("issued") }}</b>{% else %}<span class="muted">{{ _("not issued") }}</span>{% endif %}
+    · Telegram: {{ contact.tg_name or _("not connected") }}
+    · e-mail: {{ (contact.email ~ (" ✓" if contact.email_verified else " (" ~ _("not confirmed") ~ ")")) if contact.email else _("none") }}
+    · {{ _("daily report") }}: {{ ("%02d:00"|format(contact.daily_hour)) if contact.daily else _("off") }}</p>
+  <div class="row-form">
+    {% for action, label, cls in (("issue", _("Reissue link") if portal_on else _("Issue link"), ""), ("revoke", _("Revoke"), "danger"),
+                                 ("config_off" if portal_config else "config_on", _("Forbid config download") if portal_config else _("Allow config download"), "secondary"),
+                                 ("test", _("Send report now"), "secondary")) %}
+      {% if action != "revoke" or portal_on %}
+      <form method="post" action="/peer/{{ peer.id }}/portal" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="action" value="{{ action }}"><button type="submit" class="{{ cls }}">{{ label }}</button></form>
+      {% endif %}
+    {% endfor %}
+  </div>
+  <p class="muted small">{{ _("The client sees only their own data: traffic, connections, sites, restrictions.") }}{% if portal_config %} {{ _("Config download is allowed.") }}{% endif %} {{ _("The link is shown once; reissuing disables the old one.") }}
+    {% if not (notifier and notifier.tg) %} {{ _("Telegram is not configured: add TELEGRAM_BOT_TOKEN to .env.") }}{% endif %}</p>
+</section>
+{% endif %}
+
+<section class="card">
+  <div class="head"><h1>{{ _("Traffic") }}</h1>{% include "tabs.html" %}</div>
+  {{ traffic_chart|safe }}
+  <h2>{{ _("When active (30 days)") }}</h2>
+  {{ heat|safe }}
+</section>
+
+{% if not extra.deleted_at %}
+<section class="card">
+  <h1>{{ _("Management") }}</h1>
+  <div class="actions">
+    <form method="post" action="/peer/{{ peer.id }}/rename" class="row-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input name="name" value="{{ peer.name }}" required maxlength="64" aria-label="{{ _("New name") }}">
+      <button type="submit">{{ _("Rename") }}</button>
+    </form>
+    {% if peer.disabled %}
+    <form method="post" action="/peer/{{ peer.id }}/enable">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit">{{ _("Enable") }}</button>
+    </form>
+    {% else %}
+    <form method="post" action="/peer/{{ peer.id }}/disable">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="secondary">{{ _("Disable") }}</button>
+      <span class="muted small">{{ _("The client is removed from the server, the IP stays reserved for it.") }}</span>
+    </form>
+    {% endif %}
+    <details>
+      <summary class="btn danger">{{ _("Delete…") }}</summary>
+      <form method="post" action="/peer/{{ peer.id }}/delete" class="row-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input name="confirm" required placeholder="{{ _("Type the name: {name}", name=peer.name) }}" aria-label="{{ _("Confirmation") }}">
+        <button type="submit" class="danger">{{ _("Delete permanently") }}</button>
+      </form>
+      <p class="muted small">{{ _("The client is removed from awg0.conf, clientsTable and the interface. Its history stays in the panel.") }}</p>
+    </details>
+  </div>
+  {% if extra.has_key %}
+  <p><a class="btn" href="/peer/{{ peer.id }}/config">{{ _("Config, QR and vpn:// key") }}</a></p>
+  {% else %}
+  <p class="muted small">{{ _("The client was created in the AmneziaVPN app: its private key exists only on the device, so the panel cannot issue its config.") }}</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="card">
+  <h1>{{ _("Sessions") }}</h1>
+  <div class="scroll">
+  <table class="tbl">
+    <thead><tr><th>{{ _("Start") }}</th><th>{{ _("End") }}</th><th>{{ _("Duration") }}</th><th>{{ _("From") }}</th><th class="num">↓</th><th class="num">↑</th></tr></thead>
+    {% for s in sessions %}
+    <tr>
+      <td class="nowrap">{{ s.start|dt }}</td>
+      <td class="nowrap">{{ s.end|dt if s.end else _("ongoing") }}</td>
+      <td>{{ ((s.end or now) - s.start)|duration }}</td>
+      <td>{{ s.country|flag }} <code>{{ s.endpoint_ip or "—" }}</code> <span class="muted small">{{ s.org or "" }}</span></td>
+      <td class="num">{{ s.tx|size }}</td><td class="num">{{ s.rx|size }}</td>
+    </tr>
+    {% else %}<tr><td class="muted">{{ _("No sessions yet.") }}</td></tr>{% endfor %}
+  </table>
+  </div>
+</section>
+
+{% if not extra.deleted_at %}
+<section class="card">
+  <h1>{{ _("Blocking") }}</h1>
+  <table class="tbl">
+    {% for r in rules %}
+    <tr class="{{ '' if r.enabled else 'off' }}">
+      <td><code>{{ r.value }}</code> <span class="muted small">{{ _("domain") if r.kind == "domain" else "IP" }}{% if r.preset %} · {{ r.preset }}{% endif %}</span></td>
+      <td>{{ _("this client only") if r.peer_id else _("all clients") }}{% if not r.enabled %} · {{ _("disabled") }}{% endif %}</td>
+      <td class="num muted">{{ r.hits }}</td>
+      <td class="nowrap">{% if r.peer_id %}
+        <form method="post" action="/blocks/{{ r.id }}/delete" class="inline">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="/peer/{{ peer.id }}">
+          <button type="submit" class="danger small-btn">{{ _("Delete") }}</button></form>{% else %}<a href="/blocks" class="small">{{ _("shared") }}</a>{% endif %}</td>
+    </tr>
+    {% else %}<tr><td class="muted">{{ _("Nothing is blocked for this client.") }}</td></tr>{% endfor %}
+  </table>
+  <form method="post" action="/blocks/add" class="row-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="peer_id" value="{{ peer.id }}">
+    <input type="hidden" name="back" value="/peer/{{ peer.id }}">
+    <input name="values" required placeholder="{{ _("youtube.com or 1.2.3.4 (several — comma separated)") }}" aria-label="{{ _("What to block") }}">
+    <button type="submit">{{ _("Block for {name}", name=peer.name) }}</button>
+  </form>
+  <form method="post" action="/blocks/preset" class="row-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="peer_id" value="{{ peer.id }}">
+    <input type="hidden" name="back" value="/peer/{{ peer.id }}">
+    <select name="preset" aria-label="{{ _("Preset") }}">{% for name in ("YouTube", "TikTok", "Instagram", "Facebook", "X (Twitter)") %}<option>{{ name }}</option>{% endfor %}</select>
+    <button type="submit" class="secondary">{{ _("Block preset") }}</button>
+  </form>
+</section>
+{% endif %}
+
+{% if collect_hosts %}
+<section class="card">
+  <div class="head"><h1>{{ _("Sites") }}</h1>{% with tab_anchor="#sites" %}{% include "tabs.html" %}{% endwith %}</div>
+  <div class="scroll" id="sites">
+  <table class="tbl">
+    <thead><tr><th>{{ _("Site") }}</th><th class="num">{{ _("Requests") }}</th><th class="num">{{ _("Connections") }}</th><th class="num">↓</th><th class="num">↑</th></tr></thead>
+    {% for x in sites %}
+    <tr>
+      <td><b>{{ x.site }}</b>{% if x.blocked %} <span class="st st-disabled">{{ _("blocked") }}</span>{% endif %}{% if x.names|length > 1 or (x.names and x.site not in x.names) %}
+        <div class="muted small">{{ x.names|sort|join(", ")|truncate(160) }}</div>{% endif %}</td>
+      <td class="num">{{ x.req }}</td><td class="num">{{ x.conns }}</td>
+      <td class="num">{{ x.down|size }}</td><td class="num">{{ x.up|size }}</td>
+    </tr>
+    {% else %}<tr><td class="muted">{{ _("No data yet: sites appear 1–2 minutes after they are visited.") }}</td></tr>{% endfor %}
+  </table>
+  </div>
+  <details>
+    <summary class="muted">{{ _("DNS and SNI log (last 300 records, per minute)") }}</summary>
+    <table class="tbl">
+      {% for r in dnslog %}<tr><td class="muted nowrap">{{ r.ts|dt }}</td><td>{{ r.name }}</td>
+        <td class="muted small">{{ "TLS" if r.kind == "sni" else "DNS" }}</td><td class="num">{{ r.count }}</td></tr>{% endfor %}
+    </table>
+  </details>
+  <p class="muted small">{{ _("Requests are DNS queries and TLS (SNI). Bytes are counted per closed connection: long ones (video, calls) are counted after they close. Not visible: DNS over DoH/DoT in a browser or app, QUIC without a DNS query.") }}</p>
+</section>
+{% endif %}
+
+<section class="card">
+  <h1>{{ _("Connected from") }}</h1>
+  <table class="tbl">
+    <thead><tr><th>IP</th><th>{{ _("Country, city") }}</th><th>{{ _("Provider") }}</th><th>{{ _("First seen") }}</th><th>{{ _("Last seen") }}</th></tr></thead>
+    {% for e in endpoints %}
+    <tr><td><code>{{ e.ip }}</code></td><td>{{ e.country|flag }} {{ e.country or "" }} {{ e.city or "" }}</td>
+      <td>{{ e.org or "" }}{% if e.asn %} <span class="muted small">AS{{ e.asn }}</span>{% endif %}</td>
+      <td class="nowrap">{{ e.first_seen|dt }}</td><td class="nowrap">{{ e.last_seen|dt }}</td></tr>
+    {% else %}<tr><td class="muted">{{ _("No data.") }}</td></tr>{% endfor %}
+  </table>
+</section>
+
+<section class="card">
+  <h1>{{ _("Events") }}</h1>
+  <table class="tbl">
+    {% for e in events %}
+    <tr><td class="muted nowrap">{{ e.ts|dt }}</td><td>{{ event_text(e.kind, e.detail) }}</td><td class="muted">{{ e.actor or "" }}</td></tr>
+    {% else %}<tr><td class="muted">{{ _("No events.") }}</td></tr>{% endfor %}
+  </table>
+</section>
+{% endblock %}

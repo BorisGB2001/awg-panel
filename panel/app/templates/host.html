@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ site }} — {{ _("AWG panel") }}{% endblock %}
+{% block content %}
+<p><a href="/hosts?days={{ days }}">← {{ _("All sites") }}</a></p>
+<section class="card">
+  <div class="head"><h1>{{ site }}</h1>{% include "tabs.html" %}</div>
+  <form method="post" action="/blocks/add" class="row-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="values" value="{{ site }}">
+    <input type="hidden" name="back" value="/hosts/{{ site|urlencode }}">
+    <button type="submit" class="danger">{{ _("Block {site} for everyone", site=site) }}</button>
+  </form>
+  <h2>{{ _("Who visited") }}</h2>
+  <table class="tbl">
+    <thead><tr><th>{{ _("Client") }}</th><th class="num">{{ _("Requests") }}</th><th class="num">{{ _("Connections") }}</th><th class="num">↓</th><th>{{ _("First seen") }}</th><th>{{ _("Last seen") }}</th></tr></thead>
+    {% for w in who %}{% set t = traffic.get(w.id) %}
+    <tr><td><a href="/peer/{{ w.id }}?days={{ days }}#sites">{{ w.name }}</a> <span class="muted small">{{ w.ip }}</span></td>
+      <td class="num">{{ w.req }}</td><td class="num">{{ t.c if t else 0 }}</td><td class="num">{{ (t.d if t else 0)|size }}</td>
+      <td class="nowrap muted">{{ w.first|dt }}</td><td class="nowrap">{{ w.last|dt }}</td></tr>
+    {% else %}<tr><td class="muted">{{ _("No requests in this period.") }}</td></tr>{% endfor %}
+  </table>
+  <h2>{{ _("Names") }}</h2>
+  <p class="small">{% for n in names %}<code>{{ n.name }}</code> <span class="muted">×{{ n.n }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+  <h2>{{ _("IP addresses") }}</h2>
+  <p class="small">{% for i in ips %}<code>{{ i.dst_ip }}:{{ i.dport }}/{{ i.proto }}</code> <span class="muted">×{{ i.c }}</span>{% if not loop.last %}, {% endif %}{% else %}<span class="muted">{{ _("no data") }}</span>{% endfor %}</p>
+</section>
+{% endblock %}

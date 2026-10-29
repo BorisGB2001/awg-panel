@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Blocking") }} — {{ _("AWG panel") }}{% endblock %}
+{% block content %}
+{% if blocker_error %}<div class="flash flash-error">{{ _("Rules could not be applied: {error}", error=blocker_error) }}</div>{% endif %}
+
+<section class="card">
+  <h1>{{ _("Add a block") }}</h1>
+  <form method="post" action="/blocks/add" class="inline-form wide">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>{{ _("Domains or IPs — one per line (subdomains are blocked together with the domain)") }}
+      <textarea name="values" rows="4" required placeholder="youtube.com&#10;tiktok.com&#10;142.250.0.0/15"></textarea></label>
+    <label>{{ _("For whom") }}
+      <select name="peer_id">
+        <option value="">{{ _("All clients") }}</option>
+        {% for p in peers %}<option value="{{ p.id }}">{{ p.name }} ({{ p.ip }})</option>{% endfor %}
+      </select></label>
+    <label>{{ _("Comment") }} <input name="note" maxlength="200"></label>
+    <button type="submit">{{ _("Block") }}</button>
+  </form>
+</section>
+
+<section class="card">
+  <h1>{{ _("Presets") }}</h1>
+  <p class="muted small">{{ _("A preset adds all domains of a service (site, video CDN, images). Any domain of a preset can be disabled separately later.") }}</p>
+  {% for name, domains in presets.items() %}
+  <form method="post" action="/blocks/preset" class="row-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="preset" value="{{ name }}">
+    <b class="preset-name">{{ name }}</b>
+    <select name="peer_id" aria-label="{{ _("For whom") }}">
+      <option value="">{{ _("for everyone") }}</option>
+      {% for p in peers %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+    </select>
+    <button type="submit">{{ _("Block") }}</button>
+    <span class="muted small">{{ domains|join(", ") }}</span>
+  </form>
+  {% endfor %}
+</section>
+
+<section class="card">
+  <h1>{{ _("Rules") }}</h1>
+  <div class="scroll">
+  <table class="tbl">
+    <thead><tr><th>{{ _("What") }}</th><th>{{ _("For whom") }}</th><th class="num">{{ _("Hits") }}</th><th>{{ _("Last hit") }}</th><th></th></tr></thead>
+    {% for r in rules %}
+    <tr class="{{ '' if r.enabled else 'off' }}">
+      <td><code>{{ r.value }}</code> <span class="muted small">{{ _("domain") if r.kind == "domain" else "IP" }}{% if r.preset %} · {{ r.preset }}{% endif %}</span>
+        {% if r.note %}<div class="muted small">{{ r.note }}</div>{% endif %}</td>
+      <td>{% if r.peer_id %}<a href="/peer/{{ r.peer_id }}">{{ r.peer_name }}</a>{% else %}{{ _("everyone") }}{% endif %}</td>
+      <td class="num">{{ r.hits }}</td>
+      <td class="nowrap muted">{{ r.hits_ts|dt if r.hits_ts else "—" }}</td>
+      <td class="nowrap">
+        <form method="post" action="/blocks/{{ r.id }}/toggle" class="inline">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="enabled" value="{{ 0 if r.enabled else 1 }}">
+          <button type="submit" class="secondary small-btn">{{ _("Disable") if r.enabled else _("Enable") }}</button>
+        </form>
+        <form method="post" action="/blocks/{{ r.id }}/delete" class="inline">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="danger small-btn">{{ _("Delete") }}</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}<tr><td class="muted">{{ _("No rules yet.") }}</td></tr>{% endfor %}
+  </table>
+  </div>
+  <p class="muted small">{{ _("Hits are packets dropped by a rule (DNS queries and HTTPS connection attempts). Bypasses are closed for clients with domain rules: QUIC — {quic}, DoT — {dot}, DoH to public DNS — {doh} hits.", quic=bypass.quic, dot=bypass.dot, doh=bypass.doh) }}</p>
+</section>
+
+<section class="card">
+  <h1>{{ _("How it works") }}</h1>
+  <ul class="muted small">
+    <li>{{ _("Rules live in the server kernel (iptables in the AmneziaWG container) and keep working even when the panel is stopped; after a container restart the panel restores them.") }}</li>
+    <li>{{ _("A domain is blocked by its DNS query and by the site name in HTTPS connections (SNI). For affected clients QUIC (UDP 443), DNS-over-TLS (853) and DoH to public DNS are closed — the device falls back to regular methods that blocking sees.") }}</li>
+    <li>{{ _("If a rule applies to all clients, QUIC is closed for everyone: sites and apps switch to regular HTTPS, this is normal.") }}</li>
+    <li>{{ _("Not blocked: a third-party VPN or proxy inside the VPN, DoH to a non-standard resolver, Encrypted Client Hello. IP blocking has no such bypasses but blocks everything on the same IP (CDN).") }}</li>
+    <li>{{ _("Already open connections may live until they close — to check, close and reopen the app.") }}</li>
+  </ul>
+</section>
+{% endblock %}

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}{{ _("AWG panel") }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  {% if user %}
+  <header class="top">
+    <a class="brand" href="/">{{ _("AWG panel") }}</a>
+    <nav>
+      <a href="/">{{ _("Overview") }}</a>
+      <a href="/hosts">{{ _("Sites") }}</a>
+      <a href="/events">{{ _("Events") }}</a>
+      <a href="/archive">{{ _("Archive") }}</a>
+      <a href="/alerts">{{ _("Alerts") }}</a>
+      <a href="/blocks">{{ _("Blocking") }}</a>
+      <a href="/server">{{ _("Server") }}</a>
+    </nav>
+    {% include "lang.html" %}
+    <form method="post" action="/logout" class="logout">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="link">{{ _("Sign out ({user})", user=user) }}</button>
+    </form>
+  </header>
+  {% endif %}
+  <main>
+    {% if not user %}<div class="lang-corner">{% include "lang.html" %}</div>{% endif %}
+    {% if flash %}<div class="flash flash-{{ flash.kind }}">{{ flash.text }}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer>IP geolocation by <a href="https://db-ip.com" rel="noopener noreferrer">DB-IP</a></footer>
+</body>
+</html>
