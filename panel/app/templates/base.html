@@ -27,7 +27,7 @@
   </header>
   {% endif %}
   <main>
-    {% if not user %}<div class="lang-corner">{% include "theme.html" %}{% include "lang.html" %}</div>{% endif %}
+    {% if not user and not me %}<div class="lang-corner">{% include "theme.html" %}{% include "lang.html" %}</div>{% endif %}
     {% if flash %}<div class="flash flash-{{ flash.kind }}">{{ flash.text }}</div>{% endif %}
     {% block content %}{% endblock %}
   </main>

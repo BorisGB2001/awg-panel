@@ -138,3 +138,20 @@ def test_theme_switch_and_back_redirect(app_client):
     assert 'data-theme="dark"' in page and 'href="/theme/dark" class="on"' in page
     r = c.get("/theme/evil", headers={"referer": "https://other.example/x"}, follow_redirects=False)
     assert r.headers["location"] == "/" and "theme=auto" in r.headers["set-cookie"]
+
+
+def test_portal_theme_switch(app_client):
+    """В кабинете клиента тема переключается так же, как в панели, и переключатель один."""
+    c, conn = app_client
+    c.get(f"/me/k/{portal.issue_link(conn, 5, 'admin', None)}")
+    page = c.get("/me").text
+    assert 'data-theme' not in page and page.count('href="/theme/dark"') == 1 and page.count('href="/lang/') == len(i18n_codes())
+    r = c.get("/theme/dark", headers={"referer": "http://panel.test/me"}, follow_redirects=False)
+    assert r.headers["location"] == "/me"
+    page = c.get("/me").text
+    assert 'data-theme="dark"' in page and 'href="/theme/dark" class="on"' in page
+
+
+def i18n_codes():
+    from app import i18n
+    return [code for code, _ in i18n.languages()]

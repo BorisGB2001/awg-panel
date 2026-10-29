@@ -785,7 +785,7 @@ def me_page(request: Request, days: int = 1):
         "contact": portal.contact(conn, peer["id"]), "csrf": data["c"], "tg_bot": tg_name, "email_on": bool(n and n.email_on),
         "can_config": bool(peer["portal_config"] and peer["private_key_enc"]),
         "traffic_chart": charts.bars(charts.traffic_series(conn, now - days * 86400, now, bucket, peer["id"]), fmt.TZ, label),
-        "flash": None, "user": None, "lang": i18n.get()})
+        "flash": None, "user": None, "lang": i18n.get(), "theme": theme_of(request), "path": request.url.path})
 
 
 @app.post("/me/prefs")

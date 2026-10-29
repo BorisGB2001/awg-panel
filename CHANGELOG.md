@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.2 — 2026-10-29
+
+- Fix: the theme switch did nothing in the client portal (personal link); the portal also showed the language
+  and theme switchers twice.
+
 ## 1.1.1 — 2026-10-29
 
 Security update.
