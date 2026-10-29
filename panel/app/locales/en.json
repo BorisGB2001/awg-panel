@@ -165,6 +165,7 @@
   "IP addresses": "IP addresses",
   "IP changed": "IP changed",
   "IP changes": "IP changes",
+  "IP geolocation": "IP geolocation",
   "IP {ip} is already taken by another client (added outside the panel).": "IP {ip} is already taken by another client (added outside the panel).",
   "If a rule applies to all clients, QUIC is closed for everyone: sites and apps switch to regular HTTPS, this is normal.": "If a rule applies to all clients, QUIC is closed for everyone: sites and apps switch to regular HTTPS, this is normal.",
   "If the config leaked or the client needs to reconnect: new keys with the same IP. The old config stops working at once, connections of other clients are not affected.": "If the config leaked or the client needs to reconnect: new keys with the same IP. The old config stops working at once, connections of other clients are not affected.",

@@ -53,6 +53,7 @@ async def lifespan(app: FastAPI):
     app.state.accounts = admins.Accounts(settings, app.state.db, load_fernet(settings), totp)
     app.state.stop = threading.Event()
     app.state.geo = Geo(settings.data_dir / "geo")
+    templates.env.globals["GEO_DATE"] = app.state.geo.built      # дата гео-базы в подвале
     app.state.poller = app.state.sniffer = app.state.flows = app.state.blocker = app.state.alerts = None
     app.state.notifier = None
     app.state.backups = None

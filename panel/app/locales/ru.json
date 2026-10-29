@@ -650,5 +650,6 @@
   "{cidr} added: the panel opens only from the listed addresses.": "{cidr} добавлен: панель открывается только с адресов из списка.",
   "{cidr} is already in the list.": "{cidr} уже в списке.",
   "{cidr} is not in the list.": "{cidr} нет в списке.",
-  "{cidr} removed.": "{cidr} удалён."
+  "{cidr} removed.": "{cidr} удалён.",
+  "IP geolocation": "Геолокация IP"
 }

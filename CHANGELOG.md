@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.1 — 2026-10-30
+
+- Footer: GitHub links with icons to AWG Panel (with the version), AmneziaWG and AmneziaVPN; IP geolocation by DB-IP
+  with the date of the geo database. The footer is separated by a line so it is easier to notice at the bottom of long pages.
+- tools/screenshots.py: `SHOTS_MAX_HEIGHT=0` captures whole pages.
+
 ## 1.8.0 — 2026-10-30
 
 - Access by IP: the panel (including sign-in) opens only from listed addresses and subnets (IPv4/IPv6); the client

@@ -172,3 +172,8 @@ details.inline-details[open] > summary { margin-bottom: 4px; }
 .quota-form input[type=email], .quota-form input[type=password] { width: 260px; }
 .top nav.menu a { padding: 4px 8px; font-size: 14px; }
 .top { gap: 12px; }
+footer { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 18px; font-size: 13px;
+         max-width: 1200px; margin: 8px auto 0; border-top: 1px solid var(--border); padding: 18px 16px 28px; }
+footer a { color: var(--muted); }
+footer a:hover { color: var(--text); }
+footer .gh { display: inline-flex; align-items: center; gap: 5px; }

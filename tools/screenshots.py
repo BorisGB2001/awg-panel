@@ -34,7 +34,7 @@ sys.path.insert(0, str(ROOT / "panel"))
 CHROME = next((p for p in ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
                            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
                            shutil.which("google-chrome") or "", shutil.which("chromium") or "") if p and Path(p).exists()), None)
-WIDTH, MAX_HEIGHT = 1280, 1500
+WIDTH, MAX_HEIGHT = 1280, int(os.environ.get("SHOTS_MAX_HEIGHT", "1500"))   # 0 — страница целиком
 UA = "awg-panel-screenshots"   # сессия панели привязана к User-Agent — одинаковый у входа и у Chrome
 
 # страница → (адрес, подпись для README)
@@ -257,7 +257,7 @@ async def shoot(base: str, cookie: str, portal_url: str, port: int) -> None:
             await asyncio.sleep(1.2)
             h = (await call("Runtime.evaluate", expression="document.documentElement.scrollHeight", returnByValue=True))["result"]["value"]
             shot = await call("Page.captureScreenshot", format="png", captureBeyondViewport=True,
-                              clip={"x": 0, "y": 0, "width": WIDTH, "height": min(h, MAX_HEIGHT), "scale": 1})
+                              clip={"x": 0, "y": 0, "width": WIDTH, "height": min(h, MAX_HEIGHT) if MAX_HEIGHT else h, "scale": 1})
             (OUT / lang / f"{name}.png").write_bytes(base64.b64decode(shot["data"]))
             print(f"{lang}/{name}.png")
     await ws.close()
