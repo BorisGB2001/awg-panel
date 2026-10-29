@@ -40,26 +40,39 @@ def verify_password(password: str, stored: str) -> bool:
     return hmac.compare_digest(dk, base64.b64decode(want))
 
 
+# хеш случайного пароля: проверка для несуществующего логина занимает столько же, сколько для настоящего
+DUMMY_HASH = hash_password(secrets.token_urlsafe(16))
+
+
+def totp_step(secret: str, code: str, last_step: int, now: float | None = None) -> int | None:
+    """Шаг TOTP, которому соответствует код (окно ±1 шаг), если он новее last_step; иначе None."""
+    code = "".join(ch for ch in code if ch.isdigit())
+    if len(code) != 6:
+        return None
+    totp = pyotp.TOTP(secret)
+    now = time.time() if now is None else now
+    step = int(now // totp.interval)
+    for s in (step - 1, step, step + 1):
+        if s > last_step and hmac.compare_digest(totp.at(s * totp.interval), code):
+            return s
+    return None
+
+
 class TOTPGuard:
     """Проверка TOTP с окном ±1 шаг и запретом повторного использования одного кода."""
 
     def __init__(self, secret: str):
-        self.totp = pyotp.TOTP(secret)
+        self.secret = secret
         self._last_step = -1
         self._lock = threading.Lock()
 
     def verify(self, code: str, now: float | None = None) -> bool:
-        code = "".join(ch for ch in code if ch.isdigit())
-        if len(code) != 6:
-            return False
-        now = time.time() if now is None else now
-        step = int(now // self.totp.interval)
         with self._lock:
-            for s in (step - 1, step, step + 1):
-                if s > self._last_step and hmac.compare_digest(self.totp.at(s * self.totp.interval), code):
-                    self._last_step = s
-                    return True
-        return False
+            step = totp_step(self.secret, code, self._last_step, now)
+            if step is None:
+                return False
+            self._last_step = step
+            return True
 
 
 class RateLimiter:

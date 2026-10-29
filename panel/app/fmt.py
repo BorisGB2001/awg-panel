@@ -32,8 +32,14 @@ EVENT_NAMES = {
     "month_archived": N_("month archived"), "alert_traffic_spike": N_("traffic spike"),
     "alert_never_connected": N_("never connected"), "alert_inactive": N_("inactive for a long time"),
     "portal_link_issued": N_("portal link issued"), "portal_link_revoked": N_("portal link revoked"),
+    "acct_created": N_("administrator added"), "acct_deleted": N_("administrator deleted"),
+    "acct_disabled": N_("administrator disabled"), "acct_enabled": N_("administrator enabled"),
+    "acct_reset": N_("administrator password reset"), "acct_role": N_("administrator role changed"),
+    "acct_password": N_("administrator changed password"), "acct_totp_bound": N_("administrator set up the authenticator"),
     "client_view": N_("client portal opened"), "contact_telegram": N_("Telegram connected"), "contact_email": N_("e-mail confirmed"),
 }
+
+ROLE_NAMES = {"super": N_("super administrator"), "group": N_("group administrator")}
 
 STATUS_KEYS = ("online", "recent", "idle", "never", "disabled")
 STATUS_NAMES = {"online": N_("online"), "recent": N_("today"), "idle": N_("long ago"), "never": N_("not seen"),
@@ -155,5 +161,5 @@ def base_domain(name: str) -> str:
 
 def register(env) -> None:
     env.filters.update(size=size, dt=dt, ago=ago, duration=duration, flag=flag, base_domain=base_domain)
-    env.globals.update(event_text=event_text, status_name=status_name, STATUS_KEYS=STATUS_KEYS, _=t, N_=N_, VERSION=__version__,
+    env.globals.update(event_text=event_text, status_name=status_name, STATUS_KEYS=STATUS_KEYS, _=t, N_=N_, VERSION=__version__, ROLE_NAMES=ROLE_NAMES,
                        languages=i18n.languages)

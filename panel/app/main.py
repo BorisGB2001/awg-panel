@@ -20,7 +20,7 @@ from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import __version__, auth, charts, clientconf, db, fmt, i18n, maintenance, monthly, notify, portal, report
+from . import __version__, admins, auth, charts, clientconf, db, fmt, i18n, maintenance, monthly, notify, portal, report
 from .fmt import N_
 from .i18n import t
 from .awgctl import AWG, AwgUnavailable
@@ -28,7 +28,8 @@ from .alerts import Alerts
 from .blocker import PRESETS, Blocker, BlockError, rule_matches
 from .config import settings
 from .geo import Geo
-from .manage import Manager, ManageError
+from .admins import AdminError
+from .manage import Manager, ManageError, load_fernet
 from .flows import Flows
 from .names import NameCache
 from .poller import Poller
@@ -45,6 +46,8 @@ totp = auth.TOTPGuard(settings.totp_secret) if settings.totp_secret else None
 async def lifespan(app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     app.state.db = db.open_db(settings.db_path)
+    admins.ensure_env_admin(app.state.db, settings)
+    app.state.accounts = admins.Accounts(settings, app.state.db, load_fernet(settings), totp)
     app.state.stop = threading.Event()
     app.state.geo = Geo(settings.data_dir / "geo")
     app.state.poller = app.state.sniffer = app.state.flows = app.state.blocker = app.state.alerts = None
@@ -83,16 +86,31 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else "?"
 
 
-def current_user(request: Request) -> str | None:
-    s = request.session
-    user = s.get("user")
-    if not user:
-        return None
-    if s.get("ua") != auth.ua_fingerprint(request.headers.get("user-agent", "")) or \
-            time.time() - s.get("at", 0) > settings.session_hours * 3600:
+def current_admin(request: Request):
+    """Строка admins вошедшего администратора; None — не вошёл, сессия устарела, учётку отключили или сбросили."""
+    if "admin" in request.state._state:
+        return request.state.admin
+    s, row = request.session, None
+    if s.get("aid") and s.get("ua") == auth.ua_fingerprint(request.headers.get("user-agent", "")) and \
+            time.time() - s.get("at", 0) <= settings.session_hours * 3600:
+        row = admins.get(request.app.state.db, s["aid"])
+        if row is None or row["disabled"] or row["session_ver"] != s.get("sv"):
+            row = None
+    if row is None and s.get("aid"):
         s.clear()
-        return None
-    return user
+    request.state.admin = row
+    return row
+
+
+def current_user(request: Request) -> str | None:
+    row = current_admin(request)
+    return row["username"] if row else None
+
+
+def require_super(request: Request) -> None:
+    row = current_admin(request)
+    if not row or row["role"] != "super":
+        raise HTTPException(403, t("Only a super administrator can do this."))
 
 
 def csrf_token(request: Request) -> str:
@@ -116,6 +134,7 @@ def check_csrf(request: Request, token: str) -> None:
 
 def render(request: Request, name: str, **ctx) -> HTMLResponse:
     ctx.setdefault("user", current_user(request))
+    ctx.setdefault("admin", current_admin(request))
     ctx.setdefault("flash", request.session.pop("flash", None))
     ctx.setdefault("lang", i18n.get())
     ctx.setdefault("theme", theme_of(request))
@@ -127,7 +146,12 @@ def render(request: Request, name: str, **ctx) -> HTMLResponse:
 async def require_login(request: Request, call_next):
     path = request.url.path
     i18n.set_lang(request.cookies.get("lang"))
-    if path.startswith(("/static/", "/me", "/lang/", "/theme/")) or path in ("/login", "/healthz") or current_user(request):
+    if path.startswith(("/static/", "/me", "/lang/", "/theme/")) or path in ("/login", "/login/totp", "/healthz"):
+        return await call_next(request)
+    row = current_admin(request)
+    if row:
+        if row["must_change"] and path not in ("/account", "/logout"):
+            return RedirectResponse("/account", status_code=303)   # временный пароль — сначала сменить
         return await call_next(request)
     if path.startswith("/api/"):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -200,10 +224,11 @@ async def login(request: Request, username: str = Form(""), password: str = Form
     wait = limiter.blocked(ip)
     if wait:
         return render(request, "login.html", problems=[], error=t("Too many attempts. Try again in {n} min.", n=wait // 60 + 1))
-    ok = (not settings.problems() and totp is not None
-          and secrets.compare_digest(username, settings.admin_user)
-          and auth.verify_password(password, settings.admin_password_hash)
-          and totp.verify(code))
+    accts = request.app.state.accounts
+    row = admins.by_name(conn, username) if not settings.problems() else None
+    ok = accts.check_password(row, password)
+    enroll = ok and not accts.has_totp(row)
+    ok = ok and (enroll or accts.check_totp(row, code))
     if not ok:
         if limiter.fail(ip):
             db.event(conn, "alert_server", detail={"reason": "login_bruteforce"}, actor_ip=ip)
@@ -211,9 +236,64 @@ async def login(request: Request, username: str = Form(""), password: str = Form
         return render(request, "login.html", problems=settings.problems(), error=t("Wrong username, password or code."))
     limiter.success(ip)
     request.session.clear()
-    request.session.update(user=username, ua=auth.ua_fingerprint(request.headers.get("user-agent", "")),
+    if enroll:
+        # первый вход: пароль верный, TOTP ещё не привязан — привязка на отдельной странице, сессии пока нет
+        tok = secrets.token_urlsafe(24)
+        ENROLL[tok] = (row["id"], accts.new_totp_secret(), time.time() + 600)
+        request.session.update(enroll=tok, csrf=auth.new_csrf())
+        return RedirectResponse("/login/totp", status_code=303)
+    start_session(request, row, ip)
+    return RedirectResponse("/", status_code=303)
+
+
+ENROLL: dict[str, tuple[int, str, float]] = {}   # токен → (admin id, секрет TOTP, срок); в памяти, не в cookie
+
+
+def start_session(request: Request, row, ip: str) -> None:
+    request.session.clear()
+    request.session.update(aid=row["id"], sv=row["session_ver"], ua=auth.ua_fingerprint(request.headers.get("user-agent", "")),
                            at=int(time.time()), csrf=auth.new_csrf())
-    db.event(conn, "admin_login", actor=username, actor_ip=ip)
+    request.app.state.accounts.logged_in(row, ip)
+    db.event(request.app.state.db, "admin_login", actor=row["username"], actor_ip=ip)
+
+
+def enrollment(request: Request):
+    tok = request.session.get("enroll", "")
+    item = ENROLL.get(tok)
+    for k, v in list(ENROLL.items()):
+        if v[2] < time.time():
+            ENROLL.pop(k, None)
+    if not item or item[2] < time.time():
+        return None, None, None
+    return tok, admins.get(request.app.state.db, item[0]), item[1]
+
+
+@app.get("/login/totp", response_class=HTMLResponse)
+def totp_form(request: Request):
+    tok, row, secret = enrollment(request)
+    if not row:
+        return RedirectResponse("/login", status_code=303)
+    uri = request.app.state.accounts.provisioning_uri(row["username"], secret)
+    return render(request, "totp_setup.html", username=row["username"], secret=secret, error=None,
+                  qr=clientconf.qr_svg(uri).decode())
+
+
+@app.post("/login/totp", response_class=HTMLResponse)
+def totp_bind(request: Request, code: str = Form(""), csrf: str = Form("")):
+    check_csrf(request, csrf)
+    ip = client_ip(request)
+    tok, row, secret = enrollment(request)
+    if not row or row["disabled"]:
+        return RedirectResponse("/login", status_code=303)
+    if limiter.blocked(ip):
+        return RedirectResponse("/login", status_code=303)
+    if not request.app.state.accounts.bind_totp(row, secret, code, ip):
+        limiter.fail(ip)
+        uri = request.app.state.accounts.provisioning_uri(row["username"], secret)
+        return render(request, "totp_setup.html", username=row["username"], secret=secret,
+                      error=t("Wrong code. Check the time on the phone and try again."), qr=clientconf.qr_svg(uri).decode())
+    ENROLL.pop(tok, None)
+    start_session(request, admins.get(request.app.state.db, row["id"]), ip)
     return RedirectResponse("/", status_code=303)
 
 
@@ -643,8 +723,91 @@ def server_info(request: Request) -> dict:
     return info
 
 
+# ---- учётки администраторов ----
+
+@app.get("/account", response_class=HTMLResponse)
+def account_page(request: Request):
+    return render(request, "account.html", error=None)
+
+
+@app.post("/account", response_class=HTMLResponse)
+def account_password(request: Request, current: str = Form(""), new: str = Form(""), repeat: str = Form(""),
+                     csrf: str = Form("")):
+    check_csrf(request, csrf)
+    row = current_admin(request)
+    try:
+        request.app.state.accounts.change_password(row, current, new, repeat, client_ip(request))
+    except AdminError as e:
+        return render(request, "account.html", error=str(e))
+    flash(request, t("Password changed."))
+    return RedirectResponse("/", status_code=303)
+
+
+@app.get("/admins", response_class=HTMLResponse)
+def admins_page(request: Request):
+    require_super(request)
+    return render(request, "admins.html", rows=admins.all_admins(request.app.state.db), roles=admins.creatable_roles(),
+                  new_password=request.session.pop("new_password", None))
+
+
+def admin_action(request: Request, csrf: str, fn, ok: str) -> RedirectResponse:
+    require_super(request)
+    check_csrf(request, csrf)
+    try:
+        res = fn(actor=current_user(request), actor_ip=client_ip(request))
+    except AdminError as e:
+        flash(request, str(e), "error")
+        return RedirectResponse("/admins", status_code=303)
+    if isinstance(res, tuple):   # (логин, временный пароль) — показать один раз
+        request.session["new_password"] = {"username": res[0], "password": res[1]}
+    flash(request, ok)
+    return RedirectResponse("/admins", status_code=303)
+
+
+@app.post("/admins/add")
+def admins_add(request: Request, username: str = Form(""), role: str = Form("super"), note: str = Form(""),
+               csrf: str = Form("")):
+    accts = request.app.state.accounts
+    return admin_action(request, csrf, lambda **kw: (username.strip(), accts.create(username, role, note, **kw)),
+                        t("Administrator “{name}” added.", name=username.strip()))
+
+
+@app.post("/admins/{admin_id}/reset")
+def admins_reset(request: Request, admin_id: int, csrf: str = Form("")):
+    accts = request.app.state.accounts
+    row = admins.get(request.app.state.db, admin_id)
+    name = row["username"] if row else "?"
+    return admin_action(request, csrf, lambda **kw: (name, accts.reset(admin_id, **kw)),
+                        t("Password and authenticator of “{name}” reset.", name=name))
+
+
+@app.post("/admins/{admin_id}/disable")
+def admins_disable(request: Request, admin_id: int, csrf: str = Form("")):
+    return admin_action(request, csrf, lambda **kw: request.app.state.accounts.set_disabled(admin_id, True, **kw),
+                        t("Administrator disabled."))
+
+
+@app.post("/admins/{admin_id}/enable")
+def admins_enable(request: Request, admin_id: int, csrf: str = Form("")):
+    return admin_action(request, csrf, lambda **kw: request.app.state.accounts.set_disabled(admin_id, False, **kw),
+                        t("Administrator enabled."))
+
+
+@app.post("/admins/{admin_id}/role")
+def admins_role(request: Request, admin_id: int, role: str = Form(""), csrf: str = Form("")):
+    return admin_action(request, csrf, lambda **kw: request.app.state.accounts.set_role(admin_id, role, **kw),
+                        t("Role changed."))
+
+
+@app.post("/admins/{admin_id}/delete")
+def admins_delete(request: Request, admin_id: int, csrf: str = Form("")):
+    return admin_action(request, csrf, lambda **kw: request.app.state.accounts.delete(admin_id, **kw),
+                        t("Administrator deleted."))
+
+
 @app.get("/server", response_class=HTMLResponse)
 def server_page(request: Request):
+    require_super(request)
     return render(request, "server.html", info=server_info(request), now=int(time.time()))
 
 

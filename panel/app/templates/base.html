@@ -14,7 +14,8 @@
     <nav class="menu">
       {% for href, title, prefixes in [("/", N_("Overview"), ("/peer",)), ("/hosts", N_("Sites"), ("/host",)),
           ("/events", N_("Events"), ()), ("/archive", N_("Archive"), ()), ("/alerts", N_("Alerts"), ()),
-          ("/blocks", N_("Blocking"), ()), ("/server", N_("Server"), ())] %}
+          ("/blocks", N_("Blocking"), ())] + ([("/server", N_("Server"), ()), ("/admins", N_("Administrators"), ())]
+          if admin and admin.role == "super" else []) %}
       <a href="{{ href }}"{% if path == href or path.startswith(prefixes) %} class="on" aria-current="page"{% endif %}>{{ _(title) }}</a>
       {% endfor %}
     </nav>
@@ -22,7 +23,8 @@
     {% include "lang.html" %}
     <form method="post" action="/logout" class="logout">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button type="submit" class="link">{{ _("Sign out ({user})", user=user) }}</button>
+      <a href="/account" class="muted" title="{{ _("My account") }}">{{ user }}</a>
+      <button type="submit" class="link">{{ _("Sign out") }}</button>
     </form>
   </header>
   {% endif %}

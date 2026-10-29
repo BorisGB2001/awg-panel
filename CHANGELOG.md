@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0 — 2026-10-30
+
+- Administrator accounts in the panel database (Administrators page, super administrators only). The `.env`
+  account (`init-admin.sh`) is always a super administrator and stays the recovery login.
+- A new administrator gets a temporary password shown once; on first sign-in they scan the authenticator QR code
+  and must set their own password. Reset, disable, enable and delete; the last active super administrator is protected.
+- Sessions end at once when an account is disabled or reset; a TOTP code is accepted only once, also across restarts.
+- "My account" page with password change; the user name in the header links to it.
+- The Server page is for super administrators only.
+
 ## 1.1.2 — 2026-10-29
 
 - Fix: the theme switch did nothing in the client portal (personal link); the portal also showed the language

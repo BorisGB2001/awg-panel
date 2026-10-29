@@ -143,6 +143,22 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE contacts ADD COLUMN lang TEXT;
     """,
+    # 7: администраторы (супер-администратор и администраторы групп); учётка из .env — строка с env = 1
+    """
+    CREATE TABLE admins (
+        id INTEGER PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        pw_hash TEXT NOT NULL DEFAULT '',     -- пусто у учётки из .env: её пароль в .env
+        totp_enc TEXT,                        -- Fernet(секрет TOTP); NULL — привязка при первом входе
+        totp_step INT NOT NULL DEFAULT -1,    -- последний принятый шаг TOTP: код не проходит дважды
+        role TEXT NOT NULL DEFAULT 'group',   -- super | group
+        env INT NOT NULL DEFAULT 0,
+        disabled INT NOT NULL DEFAULT 0,
+        must_change INT NOT NULL DEFAULT 0,   -- временный пароль: сменить при входе
+        session_ver INT NOT NULL DEFAULT 0,   -- +1 при сбросе/отключении: открытые сессии закрываются
+        created_at INT, last_login INT, last_ip TEXT, note TEXT
+    );
+    """,
 ]
 
 

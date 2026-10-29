@@ -152,7 +152,7 @@ def test_every_admin_post_needs_csrf(client):
     routes = [r.path for r in main.app.routes if "POST" in getattr(r, "methods", ()) and r.path not in skip]
     assert len(routes) >= 15
     for path in routes:
-        url = path.replace("{peer_id}", "1").replace("{rule_id}", "1")
+        url = re.sub(r"\{\w+\}", "1", path)
         r = client.post(url, data={"csrf": "forged", "name": "x", "value": "example.com"}, follow_redirects=False)
         assert r.status_code == 403 or (path.startswith("/me") and r.status_code == 303), (path, r.status_code)
 

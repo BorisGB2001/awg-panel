@@ -131,3 +131,6 @@ label.check select { width: auto; display: inline-block; margin: 0; }
   .top .brand { margin-right: auto; }
 }
 .kpi-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0 8px; }
+.top .logout { display: flex; gap: 10px; align-items: center; }
+details.inline-details { display: inline-block; }
+details.inline-details[open] > summary { margin-bottom: 4px; }
