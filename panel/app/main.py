@@ -882,7 +882,26 @@ def group_rows(request: Request) -> list[dict]:
 def groups_page(request: Request):
     conn = request.app.state.db
     nogroup = conn.execute("SELECT COUNT(*) FROM peers WHERE group_id IS NULL AND deleted_at IS NULL").fetchone()[0]
-    return render(request, "groups.html", rows=group_rows(request), nogroup=nogroup)
+    rows = group_rows(request)
+    chart = charts.hbars(sorted(((g["name"], g["d_month"] + g["u_month"], f"/?group={g['id']}") for g in rows
+                                 if g["d_month"] + g["u_month"]), key=lambda x: -x[1]))
+    return render(request, "groups.html", rows=rows, nogroup=nogroup, chart=chart)
+
+
+@app.get("/groups.csv")
+def groups_csv(request: Request):
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow([t("group"), t("clients"), t("online"), t("downloaded today, bytes"), t("uploaded today, bytes"),
+                t("downloaded this month, bytes"), t("uploaded this month, bytes"), t("quota, bytes"), t("quota period"),
+                t("quota used, %"), t("administrators")])
+    for g in group_rows(request):
+        q = g["quota"]
+        w.writerow(map(csv_cell, [g["name"], g["clients"], g["online"], g["d_today"], g["u_today"], g["d_month"], g["u_month"],
+                                  q["limit"] if q else "", q["period"] if q else "", q["pct"] if q else "",
+                                  ", ".join(g["admins"])]))
+    return Response("\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="awg-groups.csv"', "Cache-Control": "no-store"})
 
 
 def group_action(request: Request, csrf: str, fn, ok: str) -> RedirectResponse:
@@ -924,9 +943,44 @@ def groups_delete(request: Request, group_id: int, csrf: str = Form("")):
 
 # ---- учётки администраторов ----
 
+def tg_bot_name(request: Request) -> str | None:
+    n = notifier(request)
+    try:
+        return n.tg.me() if n and n.tg else None
+    except Exception:  # noqa: BLE001 — страница открывается и без Telegram
+        return None
+
+
 @app.get("/account", response_class=HTMLResponse)
 def account_page(request: Request):
-    return render(request, "account.html", error=None)
+    return render(request, "account.html", error=None, tg_bot=tg_bot_name(request))
+
+
+@app.post("/account/telegram")
+def account_telegram(request: Request, csrf: str = Form("")):
+    check_csrf(request, csrf)
+    bot = tg_bot_name(request)
+    if not bot:
+        raise HTTPException(404)
+    code = admins.telegram_code(request.app.state.db, current_admin(request)["id"], i18n.get())
+    return RedirectResponse(f"https://t.me/{bot}?start={code}", status_code=303)
+
+
+@app.post("/account/telegram/unlink")
+def account_telegram_unlink(request: Request, csrf: str = Form("")):
+    check_csrf(request, csrf)
+    admins.unbind_telegram(request.app.state.db, current_admin(request)["id"])
+    flash(request, t("Telegram disconnected."))
+    return RedirectResponse("/account", status_code=303)
+
+
+@app.post("/account/notify")
+def account_notify(request: Request, alerts: str = Form(""), logins: str = Form(""), quiet_from: str = Form(""),
+                   quiet_to: str = Form(""), csrf: str = Form("")):
+    check_csrf(request, csrf)
+    admins.set_notify(request.app.state.db, current_admin(request)["id"], alerts == "1", logins == "1", quiet_from, quiet_to)
+    flash(request, t("Notification settings saved."))
+    return RedirectResponse("/account", status_code=303)
 
 
 @app.post("/account", response_class=HTMLResponse)
@@ -937,7 +991,7 @@ def account_password(request: Request, current: str = Form(""), new: str = Form(
     try:
         request.app.state.accounts.change_password(row, current, new, repeat, client_ip(request))
     except AdminError as e:
-        return render(request, "account.html", error=str(e))
+        return render(request, "account.html", error=str(e), tg_bot=tg_bot_name(request))
     flash(request, t("Password changed."))
     return RedirectResponse("/", status_code=303)
 
@@ -1028,8 +1082,18 @@ def archive_page(request: Request, month: str = "", group: str = ""):
     pw, pa = db.peer_filter(visible_peers(request, group))
     rows = conn.execute(f"SELECT * FROM monthly_archive WHERE month = ?{pw} ORDER BY tx DESC", (month, *pa)).fetchall()
     chart = charts.hbars([(r["name"] or r["ip"], r["tx"], f"/peer/{r['peer_id']}") for r in rows[:10] if r["tx"]])
+    gname = {g["id"]: g["name"] for g in group_choices(request)}
+    member = {r[0]: r[1] for r in conn.execute("SELECT id, group_id FROM peers")}
+    by_group: dict[str, list[int]] = {}
+    for r in rows:
+        key = gname.get(member.get(r["peer_id"]), t("no group"))
+        a = by_group.setdefault(key, [0, 0, 0])
+        a[0] += r["tx"]
+        a[1] += r["rx"]
+        a[2] += 1
+    group_totals = sorted(by_group.items(), key=lambda x: -x[1][0])
     return render(request, "archive.html", months=months, month=month, rows=rows, chart=chart,
-                  group=group, group_list=group_choices(request),
+                  group=group, group_list=group_choices(request), group_totals=group_totals,
                   total=(sum(r["tx"] for r in rows), sum(r["rx"] for r in rows)))
 
 
@@ -1158,6 +1222,7 @@ def me_page(request: Request, days: int = 1):
             tg_name = None
     return templates.TemplateResponse(request, "me.html", {
         "me": me, "now": now, "days": days, "sites": site_rows, "sessions": sessions, "endpoints": endpoints, "rules": rules,
+        "quota": quotas.status(conn, peer["quota_bytes"], peer["quota_period"], peer["id"], now),
         "contact": portal.contact(conn, peer["id"]), "csrf": data["c"], "tg_bot": tg_name, "email_on": bool(n and n.email_on),
         "can_config": bool(peer["portal_config"] and peer["private_key_enc"]),
         "traffic_chart": charts.bars(charts.traffic_series(conn, now - days * 86400, now, bucket, peer["id"]), fmt.TZ, label),
@@ -1185,6 +1250,16 @@ def me_telegram(request: Request, csrf: str = Form("")):
         raise HTTPException(404)
     code = portal.telegram_code(request.app.state.db, peer["id"])
     return RedirectResponse(f"https://t.me/{n.tg.me()}?start={code}", status_code=303)
+
+
+@app.post("/me/telegram/unlink")
+def me_telegram_unlink(request: Request, csrf: str = Form("")):
+    peer, data = me_peer(request)
+    if not peer:
+        return me_redirect()
+    me_check(request, data, csrf)
+    request.app.state.db.execute("UPDATE contacts SET tg_chat_id = NULL, tg_name = NULL WHERE peer_id = ?", (peer["id"],))
+    return me_redirect("/me#notify")
 
 
 @app.post("/me/email")

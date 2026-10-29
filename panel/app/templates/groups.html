@@ -2,7 +2,7 @@
 {% block title %}{{ _("Groups") }} — {{ _("AWG panel") }}{% endblock %}
 {% block content %}
 <section class="card">
-  <h1>{{ _("Groups") }}</h1>
+  <div class="head"><h1>{{ _("Groups") }}</h1>{% if rows %}<a class="btn" href="/groups.csv">CSV</a>{% endif %}</div>
   <div class="scroll"><table class="tbl">
     <thead><tr><th>{{ _("Group") }}</th><th class="num">{{ _("Clients") }}</th><th class="num">{{ _("online") }}</th>
       <th class="num">{{ _("Today") }} ↓/↑</th><th class="num">{{ _("This month") }} ↓/↑</th><th>{{ _("Quota") }}</th><th>{{ _("Administrators") }}</th></tr></thead>
@@ -22,6 +22,13 @@
     {% endif %}
   </table></div>
 </section>
+
+{% if chart and rows|length > 1 %}
+<section class="card">
+  <h1>{{ _("Traffic this month by group") }}</h1>
+  {{ chart|safe }}
+</section>
+{% endif %}
 
 {% if admin.role == "super" %}
 <section class="card">

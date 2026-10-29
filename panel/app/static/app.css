@@ -148,3 +148,19 @@ details.inline-details[open] > summary { margin-bottom: 4px; }
 .quota-form input { width: 7em; margin: 0; display: inline-block; }
 .quota-form select { width: auto; margin: 0; display: inline-block; }
 .quota { max-width: 420px; }
+/* элементы управления в одну строку — одна высота и базовая линия (раньше поля «скакали» по высоте) */
+.head { justify-content: flex-start; align-items: center; gap: 10px 12px; }
+.head > h1 { margin: 0 8px 0 0; }
+.head > :last-child:not(:first-child) { margin-left: auto; }
+.head form, .head .row-form { margin: 0; }
+.head select, .head input, .head button, .head .btn, .head summary.btn,
+.row-form input, .row-form select, .row-form button,
+.quota-form input, .quota-form select, .quota-form button { height: 36px; margin: 0; padding-top: 0; padding-bottom: 0; font-size: 14px; }
+.head .btn, .head summary.btn { display: inline-flex; align-items: center; }
+.quota-form label.check { gap: 8px; margin: 0; color: var(--muted); font-size: 13px; }
+.quota-form input { width: 6.5em; }
+.tbl .small-btn { height: 30px; }
+.row-form .small-btn, .quota-form .small-btn, .head .small-btn { height: 36px; padding: 0 12px; }
+.head .row-form input { flex: 0 1 220px; min-width: 140px; }
+.compact-tbl { max-width: 640px; margin-bottom: 8px; }
+.head .row-form { flex-wrap: nowrap; }

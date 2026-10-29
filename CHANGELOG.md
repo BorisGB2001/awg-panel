@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.0 — 2026-10-30
+
+- Telegram alerts for administrators: connect the panel bot on the "My account" page; new alerts (and, optionally,
+  sign-ins) come to Telegram. Super administrators get everything, group administrators only alerts about the
+  clients of their groups. Quiet hours (only server alerts then). In the bot: /stats — a short summary, /stop.
+- Client portal: a clear Telegram block with a "Disconnect" button; the client's quota is shown; clients are
+  notified when they reach their quota.
+- Groups: traffic-by-group chart and a CSV export; the monthly archive shows totals by group.
+- Layout: form controls in one row have the same height (group and quota forms, page headers with filters).
+
 ## 1.4.1 — 2026-10-30
 
 - README: screenshots of every menu section (English and Russian), made on demo data by `tools/screenshots.py`.

@@ -18,4 +18,34 @@
   </form>
   {% endif %}
 </section>
+
+<section class="card login">
+  <h1>{{ _("Telegram alerts") }}</h1>
+  {% if not tg_bot %}
+  <p class="muted small">{{ _("The Telegram bot is not configured: add TELEGRAM_BOT_TOKEN to .env on the server.") }}</p>
+  {% elif admin.tg_chat_id %}
+  <p>{{ _("Connected: {name}. Alerts come from @{bot}.", name=admin.tg_name or "Telegram", bot=tg_bot) }}</p>
+  <form method="post" action="/account/telegram/unlink" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="secondary small-btn">{{ _("Disconnect") }}</button></form>
+  {% else %}
+  <p class="muted small">{{ _("Panel alerts in Telegram: the server, shared configs, new countries, traffic spikes and quotas. A group administrator gets only alerts about clients of their groups.") }}</p>
+  <form method="post" action="/account/telegram"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit">{{ _("Connect Telegram") }}</button>
+    <span class="muted small">{{ _("the @{bot} bot opens — press “Start”", bot=tg_bot) }}</span></form>
+  {% endif %}
+  {% if tg_bot %}
+  <form method="post" action="/account/notify" class="prefs">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="check"><input type="checkbox" name="alerts" value="1"{% if admin.notify_alerts %} checked{% endif %}> {{ _("Alerts") }}</label>
+    <label class="check"><input type="checkbox" name="logins" value="1"{% if admin.notify_logins %} checked{% endif %}> {{ _("Sign-ins to the panel") }}</label>
+    <label class="check">{{ _("Quiet hours") }}
+      <select name="quiet_from" aria-label="{{ _("from") }}"><option value="">—</option>{% for h in range(24) %}<option value="{{ h }}"{% if admin.quiet_from == h %} selected{% endif %}>{{ "%02d:00"|format(h) }}</option>{% endfor %}</select>
+      —
+      <select name="quiet_to" aria-label="{{ _("to") }}"><option value="">—</option>{% for h in range(24) %}<option value="{{ h }}"{% if admin.quiet_to == h %} selected{% endif %}>{{ "%02d:00"|format(h) }}</option>{% endfor %}</select>
+    </label>
+    <p class="muted small">{{ _("During quiet hours only server alerts are sent.") }}</p>
+    <button type="submit" class="secondary">{{ _("Save") }}</button>
+  </form>
+  {% endif %}
+</section>
 {% endblock %}

@@ -199,3 +199,51 @@ class Accounts:
             raise AdminError(t("The new password must differ from the current one."))
         self.conn.execute("UPDATE admins SET pw_hash = ?, must_change = 0 WHERE id = ?", (auth.hash_password(new), row["id"]))
         db.event(self.conn, "acct_password", None, {"username": row["username"]}, row["username"], actor_ip)
+
+
+# ---- Telegram администратора ----
+
+TG_PREFIX = "adm_"     # коды клиентов без «_»: по префиксу бот отличает привязку администратора
+TG_CODE_TTL = 3600
+
+
+def telegram_code(conn: sqlite3.Connection, admin_id: int, lang: str | None) -> str:
+    """Одноразовый код для t.me/<бот>?start=adm_<код> (час); язык сообщений — язык интерфейса в момент привязки."""
+    code = secrets.token_hex(12)
+    conn.execute("UPDATE admins SET tg_code = ?, tg_code_exp = ?, lang = ? WHERE id = ?",
+                 (code, int(time.time()) + TG_CODE_TTL, lang, admin_id))
+    return TG_PREFIX + code
+
+
+def bind_telegram(conn: sqlite3.Connection, start: str, chat_id: int, name: str) -> sqlite3.Row | None:
+    if not start.startswith(TG_PREFIX):
+        return None
+    row = conn.execute("SELECT * FROM admins WHERE tg_code = ? AND tg_code_exp >= ? AND disabled = 0",
+                       (start[len(TG_PREFIX):], int(time.time()))).fetchone()
+    if not row:
+        return None
+    conn.execute("UPDATE admins SET tg_chat_id = ?, tg_name = ?, tg_code = NULL WHERE id = ?", (chat_id, name, row["id"]))
+    db.event(conn, "acct_telegram", None, {"username": row["username"], "name": name}, row["username"])
+    return row
+
+
+def unbind_telegram(conn: sqlite3.Connection, admin_id: int | None = None, chat_id: int | None = None) -> int:
+    if admin_id is not None:
+        return conn.execute("UPDATE admins SET tg_chat_id = NULL, tg_name = NULL WHERE id = ?", (admin_id,)).rowcount
+    return conn.execute("UPDATE admins SET tg_chat_id = NULL, tg_name = NULL WHERE tg_chat_id = ?", (chat_id,)).rowcount
+
+
+def set_notify(conn: sqlite3.Connection, admin_id: int, alerts: bool, logins: bool, quiet_from: str, quiet_to: str) -> None:
+    qf = int(quiet_from) if quiet_from.isdigit() and int(quiet_from) < 24 else None
+    qt = int(quiet_to) if quiet_to.isdigit() and int(quiet_to) < 24 else None
+    if qf is None or qt is None or qf == qt:
+        qf = qt = None
+    conn.execute("UPDATE admins SET notify_alerts = ?, notify_logins = ?, quiet_from = ?, quiet_to = ? WHERE id = ?",
+                 (int(alerts), int(logins), qf, qt, admin_id))
+
+
+def in_quiet_hours(row: sqlite3.Row, hour: int) -> bool:
+    qf, qt = row["quiet_from"], row["quiet_to"]
+    if qf is None or qt is None:
+        return False
+    return qf <= hour < qt if qf < qt else (hour >= qf or hour < qt)   # 23–7: через полночь

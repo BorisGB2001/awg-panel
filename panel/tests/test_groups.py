@@ -151,3 +151,8 @@ def test_admin_groups_assignment(client):
     client.post(f"/admins/{aid}/role", data={"csrf": tok, "role": "super"})
     assert admins.get(conn, aid)["role"] == "super"
     assert re.search(r"g\.one", client.get("/groups").text) is None or True
+
+
+def test_groups_csv_only_own_groups(client, world):
+    csv = client.get("/groups.csv").text
+    assert "A;" in csv and "B;" not in csv

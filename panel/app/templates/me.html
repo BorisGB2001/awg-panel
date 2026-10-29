@@ -11,7 +11,8 @@
   <div class="card kpi"><div class="muted">{{ me.name }}</div><span class="st st-{{ me.status }}">{{ status_name(me.status) }}</span>
     <div class="muted small">{{ _("VPN IP {ip}", ip=me.ip) }}</div></div>
   <div class="card kpi"><div class="muted">{{ _("Downloaded today") }}</div><b>{{ me.tx_today|size }}</b></div>
-  <div class="card kpi"><div class="muted">{{ _("Uploaded today") }}</div><b>{{ me.rx_today|size }}</b></div>
+  <div class="card kpi"><div class="muted">{{ _("Uploaded today") }}</div><b>{{ me.rx_today|size }}</b>
+    {% if quota %}<div class="muted small">{{ _("Quota") }}</div>{% set q = quota %}{% include "quota_bar.html" %}{% endif %}</div>
   <div class="card kpi"><div class="muted">{{ _("Last connection") }}</div><b>{{ me.last_handshake|ago(now) }}</b>
     <div class="muted small">{{ me.country|flag }} {{ me.last_endpoint or "" }} {{ me.org or "" }}</div></div>
 </section>
@@ -25,9 +26,16 @@
 <section class="card" id="notify">
   <h1>{{ _("Notifications") }}</h1>
   {% if tg_bot %}
-    {% if contact.tg_chat_id %}<p>{{ _("Telegram is connected: {name}. To disconnect, send /stop to @{bot}.", name=contact.tg_name, bot=tg_bot) }}</p>
-    {% else %}<form method="post" action="/me/telegram"><input type="hidden" name="csrf" value="{{ csrf }}">
-      <button type="submit">{{ _("Connect Telegram") }}</button> <span class="muted small">{{ _("the @{bot} bot opens — press “Start”", bot=tg_bot) }}</span></form>{% endif %}
+    <h2>Telegram</h2>
+    {% if contact.tg_chat_id %}
+    <p>{{ _("Connected: {name}. Notifications come from @{bot}; /stats there sends today's statistics.", name=contact.tg_name or "Telegram", bot=tg_bot) }}</p>
+    <form method="post" action="/me/telegram/unlink" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="secondary small-btn">{{ _("Disconnect Telegram") }}</button></form>
+    {% else %}
+    <p class="muted small">{{ _("Press the button: Telegram opens the @{bot} bot, press “Start” there — and this chat gets your notifications and the daily report. The link works for an hour.", bot=tg_bot) }}</p>
+    <form method="post" action="/me/telegram"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit">{{ _("Connect Telegram") }}</button></form>
+    {% endif %}
   {% else %}<p class="muted small">{{ _("Telegram is not configured by the administrator yet.") }}</p>{% endif %}
   {% if email_on %}
   <form method="post" action="/me/email" class="row-form"><input type="hidden" name="csrf" value="{{ csrf }}">

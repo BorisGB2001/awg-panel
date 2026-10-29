@@ -9,6 +9,13 @@
   </div>
   {% if not months %}<p class="muted">{{ _("The archive is empty: the first month gets here on the 1st at 00:00 Moscow time.") }}</p>{% else %}
   <p>{{ _("In {month}: downloaded {down}, uploaded {up}.", month=month, down=total[0]|size, up=total[1]|size) }} <a class="btn" href="/archive/{{ month }}.csv{% if group %}?group={{ group }}{% endif %}">CSV</a></p>
+  {% if group_totals|length > 1 %}
+  <h2>{{ _("By group") }}</h2>
+  <table class="tbl compact-tbl">
+    <thead><tr><th>{{ _("Group") }}</th><th class="num">{{ _("Clients") }}</th><th class="num">{{ _("Downloaded") }}</th><th class="num">{{ _("Uploaded") }}</th></tr></thead>
+    {% for name, v in group_totals %}<tr><td>{{ name }}</td><td class="num">{{ v[2] }}</td><td class="num">{{ v[0]|size }}</td><td class="num">{{ v[1]|size }}</td></tr>{% endfor %}
+  </table>
+  {% endif %}
   <h2>{{ _("Top 10 downloads") }}</h2>
   {{ chart|safe }}
   <div class="scroll">

@@ -185,6 +185,18 @@ MIGRATIONS: list[str] = [
     ALTER TABLE peers ADD COLUMN quota_action TEXT NOT NULL DEFAULT 'alert';
     ALTER TABLE peers ADD COLUMN quota_blocked TEXT;
     """,
+    # 10: Telegram администраторов — служебные алерты в бот панели
+    """
+    ALTER TABLE admins ADD COLUMN tg_chat_id INT;
+    ALTER TABLE admins ADD COLUMN tg_name TEXT;
+    ALTER TABLE admins ADD COLUMN tg_code TEXT;
+    ALTER TABLE admins ADD COLUMN tg_code_exp INT;
+    ALTER TABLE admins ADD COLUMN notify_alerts INT NOT NULL DEFAULT 1;
+    ALTER TABLE admins ADD COLUMN notify_logins INT NOT NULL DEFAULT 0;
+    ALTER TABLE admins ADD COLUMN quiet_from INT;
+    ALTER TABLE admins ADD COLUMN quiet_to INT;
+    ALTER TABLE admins ADD COLUMN lang TEXT;
+    """,
 ]
 
 

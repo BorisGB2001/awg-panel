@@ -1,4 +1,5 @@
-"""Уведомления клиентам: Telegram-бот, e-mail, ежедневная сводка картинкой, события.
+"""Уведомления: клиентам — Telegram-бот, e-mail, ежедневная сводка картинкой, события; администраторам — алерты
+панели в Telegram (супер-администратору все, администратору группы — по клиентам его групп).
 
 Каналы включаются сами, когда в .env есть TELEGRAM_BOT_TOKEN / SMTP_HOST; без них всё остальное работает.
 """
@@ -17,7 +18,7 @@ import urllib.request
 import uuid
 from email.message import EmailMessage
 
-from . import db, fmt, i18n, portal, report
+from . import admins, db, fmt, groups, i18n, portal, report
 from .i18n import t
 from .config import Settings
 
@@ -25,7 +26,7 @@ log = logging.getLogger("notify")
 
 # какие события клиента ему пересылаются
 CLIENT_EVENTS = {"alert_new_country", "alert_shared_config", "admin_disable", "admin_enable", "block_add", "block_delete",
-                 "alert_traffic_spike"}
+                 "alert_traffic_spike", "alert_quota"}
 
 
 # ---- Telegram ----
@@ -166,6 +167,67 @@ class Notifier:
                     self.deliver(r["peer_id"], r["kind"], "VPN: " + fmt.event_text(r["kind"], r["detail"]))
         db.set_state(self.conn, "notify_event_id", str(max(top, last)))
 
+    # ---- администраторам ----
+
+    def due_admin_events(self, now: int) -> int:
+        """Новые алерты (и, по желанию, входы в панель) — в Telegram администраторов с учётом их групп и тихих часов."""
+        if not self.tg:
+            return 0
+        top = self.conn.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()[0]
+        last = int(db.get_state(self.conn, "notify_admin_event_id", "0") or 0)
+        if not last:   # первый запуск — не рассылаем историю
+            db.set_state(self.conn, "notify_admin_event_id", str(top))
+            return 0
+        rows = self.conn.execute(
+            "SELECT e.id, e.ts, e.kind, e.detail, e.peer_id, e.actor, e.actor_ip, p.name FROM events e "
+            "LEFT JOIN peers p ON p.id = e.peer_id WHERE e.id > ? AND (e.kind LIKE 'alert_%' OR e.kind = 'admin_login') "
+            "ORDER BY e.id LIMIT 200", (last,)).fetchall()
+        targets = self.conn.execute("SELECT * FROM admins WHERE tg_chat_id IS NOT NULL AND disabled = 0").fetchall()
+        hour = datetime.datetime.fromtimestamp(now, fmt.TZ).hour
+        scope: dict[int, set[int]] = {}
+        sent = 0
+        for e in rows:
+            for a in targets:
+                if e["kind"] == "admin_login" and not a["notify_logins"]:
+                    continue
+                if e["kind"].startswith("alert_") and not a["notify_alerts"]:
+                    continue
+                if e["kind"] != "alert_server" and admins.in_quiet_hours(a, hour):
+                    continue
+                if a["role"] != "super":   # администратор группы — только события своих клиентов
+                    if a["id"] not in scope:
+                        scope[a["id"]] = groups.peers_of(self.conn, groups.admin_group_ids(self.conn, a["id"]))
+                    if e["peer_id"] is None or e["peer_id"] not in scope[a["id"]]:
+                        continue
+                with i18n.use(a["lang"]):
+                    text = "AWG: " + (f"{e['name']} — " if e["name"] else "") + fmt.event_text(e["kind"], e["detail"])
+                    if e["kind"] == "admin_login":
+                        text += f" ({e['actor']}, {e['actor_ip']})"
+                try:
+                    self.tg.send(a["tg_chat_id"], text)
+                    sent += 1
+                except Exception as ex:  # noqa: BLE001 — один получатель не должен мешать остальным
+                    self.conn.execute("INSERT INTO notify_log (ts, peer_id, channel, kind, ok, error) VALUES (?, NULL, ?, ?, 0, ?)",
+                                      (now, "telegram-admin", e["kind"], f"{a['username']}: {str(ex)[:250]}"))
+        db.set_state(self.conn, "notify_admin_event_id", str(rows[-1]["id"] if len(rows) == 200 else max(top, last)))
+        return sent
+
+    def admin_summary(self, a: sqlite3.Row, now: int) -> str:
+        """Ответ на /stats администратору: онлайн, трафик за сегодня, непрочитанные алерты — в пределах его групп."""
+        peers = None if a["role"] == "super" else groups.peers_of(self.conn, groups.admin_group_ids(self.conn, a["id"]))
+        w, args = db.peer_filter(peers, "id")
+        tw, targs = db.peer_filter(peers)
+        online = self.conn.execute(f"SELECT COUNT(*) FROM peers WHERE deleted_at IS NULL AND disabled = 0 AND last_handshake >= ?{w}",
+                                   (now - self.s.online_window, *args)).fetchone()[0]
+        total = self.conn.execute(f"SELECT COUNT(*) FROM peers WHERE deleted_at IS NULL{w}", args).fetchone()[0]
+        d, u = self.conn.execute(f"SELECT COALESCE(SUM(tx), 0), COALESCE(SUM(rx), 0) FROM traffic_hour WHERE ts >= ?{tw}",
+                                 (fmt.day_start(now), *targs)).fetchone()
+        alerts = self.conn.execute(f"SELECT COUNT(*) FROM events WHERE kind LIKE 'alert_%' AND acked = 0{tw}", targs).fetchone()[0]
+        return "\n".join([t("AWG panel, {time}", time=fmt.dt(now)),
+                          t("Online: {n} of {total}", n=online, total=total),
+                          t("Today: ↓ {down} · ↑ {up}", down=fmt.size(d), up=fmt.size(u)),
+                          t("Unread alerts: {n}", n=alerts)])
+
     # ---- бот: привязка и команды ----
 
     def handle_update(self, u: dict) -> None:
@@ -178,6 +240,12 @@ class Notifier:
         name = "@" + who["username"] if who.get("username") else who.get("first_name", "")
         if text.startswith("/start"):
             code = text.split(maxsplit=1)[1] if " " in text else ""
+            adm = admins.bind_telegram(self.conn, code, chat, name) if code.startswith(admins.TG_PREFIX) else None
+            if adm:
+                with i18n.use(adm["lang"]):
+                    self.tg.send(chat, t("Done: panel alerts for administrator “{name}” will come here.", name=adm["username"])
+                                 + "\n" + t("/stats — summary, /stop — disconnect."))
+                return
             row = portal.bind_telegram(self.conn, code, chat, name) if code else None
             if row:
                 with i18n.use(self.lang(row["peer_id"])):
@@ -186,15 +254,19 @@ class Notifier:
             else:
                 self.tg.send(chat, t("Open your VPN portal and press “Connect Telegram” — the link is valid for an hour."))
         elif text.startswith("/stop"):
-            n = portal.unbind_telegram(self.conn, chat)
+            n = portal.unbind_telegram(self.conn, chat) + admins.unbind_telegram(self.conn, chat_id=chat)
             self.tg.send(chat, t("Notifications disabled.") if n else t("This chat was not connected."))
         elif text.startswith("/stats"):
+            adm = self.conn.execute("SELECT * FROM admins WHERE tg_chat_id = ? AND disabled = 0", (chat,)).fetchone()
             row = self.conn.execute("SELECT peer_id FROM contacts WHERE tg_chat_id = ?", (chat,)).fetchone()
+            if adm:
+                with i18n.use(adm["lang"]):
+                    self.tg.send(chat, self.admin_summary(adm, int(time.time())))
             if row:
                 with i18n.use(self.lang(row[0])):
                     png, caption = report.daily_png(self.conn, row[0], int(time.time()))
                 self.tg.send_photo(chat, png, caption)
-            else:
+            elif not adm:
                 self.tg.send(chat, t("This chat is not connected to a VPN portal."))
 
     def bot_loop(self, stop: threading.Event) -> None:
@@ -218,6 +290,7 @@ class Notifier:
                 with self._lock:
                     now = int(time.time())
                     self.due_events()
+                    self.due_admin_events(now)
                     self.due_daily(now)
             except Exception as e:  # noqa: BLE001
                 self.last_error = repr(e)

@@ -155,3 +155,15 @@ def test_portal_theme_switch(app_client):
 def i18n_codes():
     from app import i18n
     return [code for code, _ in i18n.languages()]
+
+
+def test_portal_telegram_unlink(app_client):
+    c, conn = app_client
+    c.get(f"/me/k/{portal.issue_link(conn, 5, 'admin', None)}")
+    portal.contact(conn, 5)
+    conn.execute("UPDATE contacts SET tg_chat_id = 77, tg_name = '@anna' WHERE peer_id = 5")
+    tok = re.search(r'name="csrf" value="([^"]+)"', c.get("/me").text).group(1)
+    c.post("/me/telegram/unlink", data={"csrf": "wrong"})
+    assert conn.execute("SELECT tg_chat_id FROM contacts WHERE peer_id = 5").fetchone()[0] == 77
+    c.post("/me/telegram/unlink", data={"csrf": tok})
+    assert conn.execute("SELECT tg_chat_id FROM contacts WHERE peer_id = 5").fetchone()[0] is None

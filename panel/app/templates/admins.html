@@ -24,7 +24,8 @@
           {% if group_list %}<button type="submit" class="secondary small-btn">{{ _("Save") }}</button>{% endif %}
         </form>{% if not member[a.id] %}<div class="warn small">{{ _("No groups: sees nothing") }}</div>{% endif %}
         {% else %}<span class="muted small">{{ _("all") }}</span>{% endif %}</td>
-      <td>{% if a.env or a.totp_enc %}<span class="st st-online">{{ _("set up") }}</span>{% else %}<span class="st">{{ _("on first sign-in") }}</span>{% endif %}</td>
+      <td>{% if a.env or a.totp_enc %}<span class="st st-online">{{ _("set up") }}</span>{% else %}<span class="st">{{ _("on first sign-in") }}</span>{% endif %}
+        {% if a.tg_chat_id %}<div class="muted small">Telegram ✓</div>{% endif %}</td>
       <td class="nowrap">{{ a.last_login|dt }}<div class="muted small">{{ a.last_ip or "" }}</div></td>
       <td class="muted small">{{ a.note or "" }}</td>
       <td class="nowrap">{% if not a.env %}
