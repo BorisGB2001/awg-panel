@@ -6,6 +6,7 @@ import pyotp
 import pytest
 from fastapi.testclient import TestClient
 
+import app
 from app import auth, db, notify, portal, report
 from app.config import Settings
 
@@ -128,7 +129,9 @@ def test_report_png(tmp_path):
 
 def test_theme_switch_and_back_redirect(app_client):
     c, _ = app_client
-    assert 'data-theme' not in c.get("/login").text            # по умолчанию — как в системе
+    page = c.get("/login").text
+    assert 'data-theme' not in page                               # по умолчанию — как в системе
+    assert f"v{app.__version__}" in page                          # версия в подвале
     r = c.get("/theme/dark", headers={"referer": "http://panel.test/login"}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/login" and "theme=dark" in r.headers["set-cookie"]
     page = c.get("/login").text

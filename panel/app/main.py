@@ -19,7 +19,7 @@ from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, charts, clientconf, db, fmt, i18n, maintenance, monthly, notify, portal, report
+from . import __version__, auth, charts, clientconf, db, fmt, i18n, maintenance, monthly, notify, portal, report
 from .fmt import N_
 from .i18n import t
 from .awgctl import AWG, AwgUnavailable
@@ -865,7 +865,7 @@ async def healthz(request: Request):
         raise HTTPException(404)
     p = request.app.state.poller
     return {"ok": bool(p and p.status.last_ok and time.time() - p.status.last_ok < 3 * settings.poll_interval),
-            "schema": db.version(request.app.state.db),
+            "version": __version__, "schema": db.version(request.app.state.db),
             "poller": p and {"last_ok": int(p.status.last_ok), "error": p.status.last_error,
                              "online": p.status.online, "peers": p.status.peers},
             "geo": request.app.state.geo.built(),
