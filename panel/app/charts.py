@@ -9,7 +9,7 @@ from . import db
 from .fmt import N_, size
 from .i18n import t
 
-W, H, PAD_L, PAD_B, PAD_T = 720, 180, 56, 22, 8
+W, H, PAD_L, PAD_B, PAD_T = 720, 180, 68, 22, 8   # PAD_L: подписи вида «953.7 MiB» не обрезаются
 
 
 def _nice_max(v: float) -> float:
@@ -48,7 +48,7 @@ def bars(points: list[tuple[int, float, float]], tz: ZoneInfo, label_fmt: str, *
         out.append(f'<g><title>{escape(tip)}</title>'
                    f'<rect class="s1" x="{x + 0.5:.1f}" y="{PAD_T + ph - ha:.1f}" width="{max(bw - 1, 0.5):.1f}" height="{ha:.1f}"/>'
                    f'<rect class="s2" x="{x + 0.5:.1f}" y="{PAD_T + ph - ha - hb:.1f}" width="{max(bw - 1, 0.5):.1f}" height="{hb:.1f}"/></g>')
-        if i % step == 0:
+        if i % step == 0 and i + step // 2 < n:   # подпись у самого правого края обрезалась бы — пропускаем
             out.append(f'<text class="axis" x="{x + bw / 2:.1f}" y="{H - 6}" text-anchor="middle">{escape(when)}</text>')
     out.append("</svg>")
     if bytes_axis:

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.1 — 2026-10-30
+
+- README: screenshots of every menu section (English and Russian), made on demo data by `tools/screenshots.py`.
+- Fix: chart axis labels like "953.7 MiB" were cut on the left, the last time label on the right.
+- The quota usage bar on the client card no longer stretches across the whole page.
+
 ## 1.4.0 — 2026-10-30
 
 - Traffic quotas per group and per client: a limit in GiB per day or calendar month (downloaded + uploaded).

@@ -12,6 +12,19 @@ A web panel for an AmneziaWG server run by the AmneziaVPN app (Docker container 
 | Data | `/opt/awg-panel/data`: `panel.db` (SQLite), `backups/` (AmneziaWG configs and DB), `geo/` (DB-IP), `data.key` |
 | Login | user `admin`, password + TOTP code |
 
+## Screenshots
+
+Demo data: the clients, addresses and traffic are fictional. Click a picture to open it full size. The pictures are made by `tools/screenshots.py`.
+
+<table>
+<tr><td width="50%"><a href="docs/screenshots/en/overview.png"><img src="docs/screenshots/en/overview.png" alt="Overview — clients, traffic, top 10"></a><br><b>Overview — clients, traffic, top 10</b></td><td width="50%"><a href="docs/screenshots/en/client.png"><img src="docs/screenshots/en/client.png" alt="Client card — group, quota, portal, activity"></a><br><b>Client card — group, quota, portal, activity</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/en/sites.png"><img src="docs/screenshots/en/sites.png" alt="Sites — what clients visit"></a><br><b>Sites — what clients visit</b></td><td width="50%"><a href="docs/screenshots/en/events.png"><img src="docs/screenshots/en/events.png" alt="Events — connections, IP changes, admin actions"></a><br><b>Events — connections, IP changes, admin actions</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/en/archive.png"><img src="docs/screenshots/en/archive.png" alt="Monthly archive"></a><br><b>Monthly archive</b></td><td width="50%"><a href="docs/screenshots/en/alerts.png"><img src="docs/screenshots/en/alerts.png" alt="Alerts"></a><br><b>Alerts</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/en/blocking.png"><img src="docs/screenshots/en/blocking.png" alt="Blocking — domains, IPs, presets"></a><br><b>Blocking — domains, IPs, presets</b></td><td width="50%"><a href="docs/screenshots/en/groups.png"><img src="docs/screenshots/en/groups.png" alt="Groups — traffic and quotas"></a><br><b>Groups — traffic and quotas</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/en/server.png"><img src="docs/screenshots/en/server.png" alt="Server — AmneziaWG and collectors"></a><br><b>Server — AmneziaWG and collectors</b></td><td width="50%"><a href="docs/screenshots/en/admins.png"><img src="docs/screenshots/en/admins.png" alt="Administrators — roles and groups"></a><br><b>Administrators — roles and groups</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/en/portal.png"><img src="docs/screenshots/en/portal.png" alt="Client portal (personal link)"></a><br><b>Client portal (personal link)</b></td><td width="50%"><a href="docs/screenshots/en/overview-dark.png"><img src="docs/screenshots/en/overview-dark.png" alt="Dark theme"></a><br><b>Dark theme</b></td></tr>
+</table>
+
 ## Features
 
 - **Dashboard**: online clients, traffic today and this month, top-10 downloaders (today / month), traffic chart, activity heatmap.
@@ -22,6 +35,10 @@ A web panel for an AmneziaWG server run by the AmneziaVPN app (Docker container 
 - **Client portal**: a personal link where a client sees their own traffic, sessions and sites, downloads their config and subscribes to notifications.
 - **Notifications**: Telegram bot and e-mail, including a daily PNG report (today's chart and top-10 sites).
 - **Monthly archive**: statistics reset on the 1st at 00:00, the previous month is kept in the archive.
+- **Administrators**: super administrators and group administrators, each with a password and TOTP; a new administrator gets a temporary password and sets up the authenticator on first sign-in.
+- **Groups**: clients are organised in groups; a group administrator sees and manages only the clients of its groups. Per-group traffic today and this month.
+- **Quotas**: traffic limits per group or client per day or month, alerts at 80 % and 100 %, optionally disabling clients until the period ends.
+- **Themes**: light, dark or as in the system.
 - **Languages**: English by default, Russian included, any language can be added as a JSON file.
 
 ## How it works
@@ -124,6 +141,8 @@ python3 -m venv .venv && .venv/bin/pip install -r panel/requirements.txt pytest 
 cd panel && ../.venv/bin/python -m pytest -q
 ```
 
-Code in `panel/app/`: `awgctl.py` (container access), `awgconf.py` (config files), `manage.py` (clients), `poller.py` (traffic, sessions), `sniffer.py`/`flows.py`/`names.py` (sites), `blocker.py` (blocking), `alerts.py`, `monthly.py`, `maintenance.py`, `clientconf.py` (.conf, QR, vpn://), `charts.py` (SVG), `portal.py`, `notify.py`, `report.py`, `i18n.py`, `main.py` (web).
+Screenshots for this README: `.venv/bin/python tools/screenshots.py` (needs Google Chrome; runs the panel locally on demo data).
+
+Code in `panel/app/`: `awgctl.py` (container access), `awgconf.py` (config files), `manage.py` (clients), `poller.py` (traffic, sessions), `sniffer.py`/`flows.py`/`names.py` (sites), `blocker.py` (blocking), `alerts.py`, `monthly.py`, `maintenance.py`, `clientconf.py` (.conf, QR, vpn://), `charts.py` (SVG), `admins.py`, `groups.py`, `quotas.py`, `portal.py`, `notify.py`, `report.py`, `i18n.py`, `main.py` (web).
 
 Geolocation by [DB-IP](https://db-ip.com) Lite (CC BY 4.0).

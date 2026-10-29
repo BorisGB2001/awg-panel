@@ -147,3 +147,4 @@ details.inline-details[open] > summary { margin-bottom: 4px; }
 .quota-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 0; }
 .quota-form input { width: 7em; margin: 0; display: inline-block; }
 .quota-form select { width: auto; margin: 0; display: inline-block; }
+.quota { max-width: 420px; }

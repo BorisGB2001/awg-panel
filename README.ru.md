@@ -2,7 +2,7 @@
 
 [English version](README.md)
 
-Веб-панель для сервера AmneziaWG (контейнер `amnezia-awg2`, приложение AmneziaVPN): сессии и трафик клиентов, откуда подключаются, на какие сайты ходят, блокировка доменов и IP, добавление/удаление клиентов и выдача конфигов, алерты, помесячный архив.
+Веб-панель для сервера AmneziaWG (контейнер `amnezia-awg2`, приложение AmneziaVPN): сессии и трафик клиентов, откуда подключаются, на какие сайты ходят, блокировка доменов и IP, добавление/удаление клиентов и выдача конфигов, алерты, помесячный архив, группы клиентов с их администраторами, квоты трафика, личный кабинет клиента, уведомления в Telegram и на почту.
 
 | | |
 |---|---|
@@ -11,6 +11,19 @@
 | Контейнеры | `awg-panel` (Python, FastAPI), `awg-panel-caddy` (HTTPS) |
 | Данные | `/opt/awg-panel/data`: `panel.db` (SQLite), `backups/` (конфиги AmneziaWG и БД), `geo/` (DB-IP), `data.key` |
 | Вход | логин `admin`, пароль + код TOTP |
+
+## Скриншоты
+
+Данные демонстрационные: клиенты, адреса и трафик вымышлены. Нажмите на картинку, чтобы открыть её целиком. Скриншоты делает `tools/screenshots.py`.
+
+<table>
+<tr><td width="50%"><a href="docs/screenshots/ru/overview.png"><img src="docs/screenshots/ru/overview.png" alt="Обзор — клиенты, трафик, топ-10"></a><br><b>Обзор — клиенты, трафик, топ-10</b></td><td width="50%"><a href="docs/screenshots/ru/client.png"><img src="docs/screenshots/ru/client.png" alt="Карточка клиента — группа, квота, кабинет, активность"></a><br><b>Карточка клиента — группа, квота, кабинет, активность</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/ru/sites.png"><img src="docs/screenshots/ru/sites.png" alt="Сайты — куда ходят клиенты"></a><br><b>Сайты — куда ходят клиенты</b></td><td width="50%"><a href="docs/screenshots/ru/events.png"><img src="docs/screenshots/ru/events.png" alt="События — подключения, смены IP, действия админов"></a><br><b>События — подключения, смены IP, действия админов</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/ru/archive.png"><img src="docs/screenshots/ru/archive.png" alt="Помесячный архив"></a><br><b>Помесячный архив</b></td><td width="50%"><a href="docs/screenshots/ru/alerts.png"><img src="docs/screenshots/ru/alerts.png" alt="Алерты"></a><br><b>Алерты</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/ru/blocking.png"><img src="docs/screenshots/ru/blocking.png" alt="Блокировки — домены, IP, наборы"></a><br><b>Блокировки — домены, IP, наборы</b></td><td width="50%"><a href="docs/screenshots/ru/groups.png"><img src="docs/screenshots/ru/groups.png" alt="Группы — трафик и квоты"></a><br><b>Группы — трафик и квоты</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/ru/server.png"><img src="docs/screenshots/ru/server.png" alt="Сервер — AmneziaWG и сборщики"></a><br><b>Сервер — AmneziaWG и сборщики</b></td><td width="50%"><a href="docs/screenshots/ru/admins.png"><img src="docs/screenshots/ru/admins.png" alt="Администраторы — роли и группы"></a><br><b>Администраторы — роли и группы</b></td></tr>
+<tr><td width="50%"><a href="docs/screenshots/ru/portal.png"><img src="docs/screenshots/ru/portal.png" alt="Кабинет клиента (личная ссылка)"></a><br><b>Кабинет клиента (личная ссылка)</b></td><td width="50%"><a href="docs/screenshots/ru/overview-dark.png"><img src="docs/screenshots/ru/overview-dark.png" alt="Тёмная тема"></a><br><b>Тёмная тема</b></td></tr>
+</table>
 
 ## Как устроено
 
@@ -106,4 +119,6 @@ python3 -m venv .venv && .venv/bin/pip install -r panel/requirements.txt pytest 
 cd panel && ../.venv/bin/python -m pytest -q
 ```
 
-Код: `panel/app/` — `awgctl.py` (доступ к контейнеру), `awgconf.py` (файлы), `manage.py` (клиенты), `poller.py` (трафик, сессии), `sniffer.py`/`flows.py`/`names.py` (сайты), `blocker.py` (блокировка), `alerts.py`, `monthly.py`, `maintenance.py`, `clientconf.py` (.conf, QR, vpn://), `charts.py` (SVG), `main.py` (веб).
+Скриншоты для README: `.venv/bin/python tools/screenshots.py` (нужен Google Chrome; панель запускается локально на демо-данных).
+
+Код: `panel/app/` — `awgctl.py` (доступ к контейнеру), `awgconf.py` (файлы), `manage.py` (клиенты), `poller.py` (трафик, сессии), `sniffer.py`/`flows.py`/`names.py` (сайты), `blocker.py` (блокировка), `alerts.py`, `monthly.py`, `maintenance.py`, `clientconf.py` (.conf, QR, vpn://), `charts.py` (SVG), `admins.py` (администраторы), `groups.py` (группы), `quotas.py` (квоты), `portal.py`, `notify.py`, `report.py`, `i18n.py`, `main.py` (веб).
