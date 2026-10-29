@@ -165,3 +165,7 @@ details.inline-details[open] > summary { margin-bottom: 4px; }
 .compact-tbl { max-width: 640px; margin-bottom: 8px; }
 .head .row-form { flex-wrap: nowrap; }
 #filter { width: 220px; }
+.contacts-form { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; margin: 12px 0 4px; }
+.contacts-form label { margin: 0; flex: 1 1 220px; }
+.contacts-form input { height: 36px; }
+.contacts-form button { height: 36px; padding-top: 0; padding-bottom: 0; }

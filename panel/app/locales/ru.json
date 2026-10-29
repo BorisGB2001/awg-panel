@@ -558,5 +558,15 @@
   "file, QR code and vpn:// key from @{bot}": "файл, QR-код и ключ vpn:// от @{bot}",
   "for a client who has not connected Telegram yet": "для клиента, который ещё не подключал Telegram",
   "new keys issued": "выпущены новые ключи",
-  "the client is not in awg0.conf": "клиента нет в awg0.conf"
+  "the client is not in awg0.conf": "клиента нет в awg0.conf",
+  "Contacts saved.": "Контакты сохранены.",
+  "Save Telegram ID": "Сохранить Telegram ID",
+  "Save contacts": "Сохранить контакты",
+  "Telegram ID": "Telegram ID",
+  "Telegram ID is a number, e.g. 123456789 (the client can get it from @userinfobot).": "Telegram ID — это число, например 123456789 (клиент может узнать его у @userinfobot).",
+  "Telegram ID is the client's numeric ID (they can get it from @userinfobot). The bot can write only to someone who pressed “Start” in it once — a test message is sent on saving. Or send the client a bot link from the config page: the ID is filled in by itself.": "Telegram ID — числовой ID клиента (он может узнать его у @userinfobot). Бот может писать только тому, кто хоть раз нажал у него «Старт», — при сохранении уходит пробное сообщение. Или отправьте клиенту ссылку на бота со страницы конфига: ID заполнится сам.",
+  "Telegram ID, e.g. 123456789": "Telegram ID, например 123456789",
+  "The bot cannot write to this ID ({error}). The client must open @{bot} and press “Start” once.": "Бот не может написать на этот ID ({error}). Клиенту нужно один раз открыть @{bot} и нажать «Старт».",
+  "VPN notifications for “{name}” will come here.": "Уведомления VPN для «{name}» будут приходить сюда.",
+  "contacts changed": "изменены контакты"
 }

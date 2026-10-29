@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.6.2 — 2026-10-30
+
+- Client card: Telegram ID and e-mail fields for the administrator. A new Telegram ID is checked with a test message
+  (the bot can write only to someone who pressed "Start" in it once); an e-mail entered by the administrator counts
+  as confirmed. The config page has a Telegram ID field too, so the config can be sent right away.
+
+## 1.6.1 — 2026-10-30
+
+- Fix: choosing a group did nothing on the Sites, Events and Archive pages — the script that applies the filter was
+  loaded only on the overview. It is now loaded on every page.
+- app.js and app.css are requested with the panel version, so browsers do not keep an old copy after an update.
+
 ## 1.6.0 — 2026-10-30
 
 - Send the config to the client: to Telegram (if the client connected it) or by a one-time bot link valid for 7 days —

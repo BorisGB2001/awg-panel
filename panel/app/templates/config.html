@@ -14,6 +14,11 @@
     <button type="submit">{{ _("Send to Telegram ({name})", name=contact.tg_name or "Telegram") }}</button>
     <span class="muted small">{{ _("file, QR code and vpn:// key from @{bot}", bot=tg_bot) }}</span></form>
   {% endif %}
+  {% if not contact.tg_chat_id %}
+  <form method="post" action="/peer/{{ peer_id }}/contacts" class="row-form"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <input name="tg_id" inputmode="numeric" placeholder="{{ _("Telegram ID, e.g. 123456789") }}" aria-label="{{ _("Telegram ID") }}">
+    <button type="submit" class="secondary">{{ _("Save Telegram ID") }}</button></form>
+  {% endif %}
   {% if botlink %}
   <p>{{ _("Link for the client (works once, 7 days) — send it in any messenger:") }}</p>
   <textarea class="key" readonly rows="2" aria-label="{{ _("Link") }}">{{ botlink }}</textarea>

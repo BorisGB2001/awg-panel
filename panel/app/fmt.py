@@ -40,7 +40,7 @@ EVENT_NAMES = {
     "group_member": N_("moved to a group"), "acct_groups": N_("administrator groups changed"),
     "acct_telegram": N_("administrator connected Telegram"),
     "alert_quota": N_("traffic quota"), "quota_set": N_("quota changed"),
-    "admin_rekey": N_("new keys issued"), "config_sent": N_("config sent"), "config_link_issued": N_("bot link for the config created"),
+    "contacts_set": N_("contacts changed"), "admin_rekey": N_("new keys issued"), "config_sent": N_("config sent"), "config_link_issued": N_("bot link for the config created"),
     "client_view": N_("client portal opened"), "contact_telegram": N_("Telegram connected"), "contact_email": N_("e-mail confirmed"),
 }
 

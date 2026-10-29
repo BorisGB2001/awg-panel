@@ -594,6 +594,43 @@ def peer_rekey(request: Request, peer_id: int, csrf: str = Form("")):
                          f"/peer/{peer_id}", lambda _: f"/peer/{peer_id}/config")
 
 
+@app.post("/peer/{peer_id}/contacts")
+def peer_contacts(request: Request, peer_id: int, tg_id: str = Form(""), email: str = Form(""), with_email: str = Form(""),
+                  csrf: str = Form("")):
+    """Telegram ID и e-mail клиента — вводит администратор. Новый Telegram ID проверяется пробным сообщением:
+    бот может писать только тем, кто хоть раз нажал у него «Старт»."""
+    check_csrf(request, csrf)
+    conn = request.app.state.db
+    c = portal.contact(conn, peer_id)
+    raw = tg_id.strip().removeprefix("id").strip()
+    tg, tg_name = c["tg_chat_id"], c["tg_name"]
+    try:
+        if not raw:
+            tg = tg_name = None
+        elif not re.fullmatch(r"-?\d{3,20}", raw):
+            raise ValueError(t("Telegram ID is a number, e.g. 123456789 (the client can get it from @userinfobot)."))
+        elif int(raw) != c["tg_chat_id"]:
+            n = notifier(request)
+            if not n.tg:
+                raise ValueError(t("The Telegram bot is not configured: add TELEGRAM_BOT_TOKEN to .env on the server."))
+            name = conn.execute("SELECT name FROM peers WHERE id = ?", (peer_id,)).fetchone()[0]
+            try:
+                with i18n.use(n.lang(peer_id)):
+                    n.tg.send(int(raw), t("VPN notifications for “{name}” will come here.", name=name))
+            except Exception as e:  # noqa: BLE001
+                raise ValueError(t("The bot cannot write to this ID ({error}). The client must open @{bot} and press “Start” once.",
+                                   error=str(e).removeprefix("Telegram sendMessage: "), bot=n.tg.me())) from e
+            tg, tg_name = int(raw), f"id {raw}"
+        portal.set_contacts_by_admin(conn, peer_id, tg, tg_name, email if with_email else None,   # нет поля почты — не трогаем
+                                     current_user(request), client_ip(request))
+        flash(request, t("Contacts saved."))
+    except ValueError as e:
+        flash(request, str(e), "error")
+    back = request.headers.get("referer", "")
+    return RedirectResponse(f"/peer/{peer_id}/config#send" if back.endswith("/config") else f"/peer/{peer_id}#contacts",
+                            status_code=303)
+
+
 @app.post("/peer/{peer_id}/send")
 def peer_send(request: Request, peer_id: int, channel: str = Form(""), to: str = Form(""), csrf: str = Form("")):
     check_csrf(request, csrf)

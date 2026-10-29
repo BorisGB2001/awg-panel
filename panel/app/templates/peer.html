@@ -58,6 +58,13 @@
       {% endif %}
     {% endfor %}
   </div>
+  <form method="post" action="/peer/{{ peer.id }}/contacts" class="contacts-form" id="contacts">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="with_email" value="1">
+    <label>{{ _("Telegram ID") }} <input name="tg_id" inputmode="numeric" value="{{ contact.tg_chat_id or '' }}" placeholder="123456789"></label>
+    <label>E-mail <input type="email" name="email" value="{{ contact.email or '' }}" placeholder="client@example.com"></label>
+    <button type="submit" class="secondary">{{ _("Save contacts") }}</button>
+  </form>
+  <p class="muted small">{{ _("Telegram ID is the client's numeric ID (they can get it from @userinfobot). The bot can write only to someone who pressed “Start” in it once — a test message is sent on saving. Or send the client a bot link from the config page: the ID is filled in by itself.") }}</p>
   <p class="muted small">{{ _("The client sees only their own data: traffic, connections, sites, restrictions.") }}{% if portal_config %} {{ _("Config download is allowed.") }}{% endif %} {{ _("The link is shown once; reissuing disables the old one.") }}
     {% if not (notifier and notifier.tg) %} {{ _("Telegram is not configured: add TELEGRAM_BOT_TOKEN to .env.") }}{% endif %}</p>
 </section>

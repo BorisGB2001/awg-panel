@@ -167,3 +167,41 @@ def test_portal_telegram_unlink(app_client):
     assert conn.execute("SELECT tg_chat_id FROM contacts WHERE peer_id = 5").fetchone()[0] == 77
     c.post("/me/telegram/unlink", data={"csrf": tok})
     assert conn.execute("SELECT tg_chat_id FROM contacts WHERE peer_id = 5").fetchone()[0] is None
+
+
+def test_admin_sets_client_contacts(app_client, monkeypatch):
+    from app import main
+    c, conn = app_client
+    sent = []
+
+    class TG:
+        def send(self, chat, text):
+            if chat == 999:
+                raise RuntimeError("Telegram sendMessage: Bad Request: chat not found")
+            sent.append(chat)
+
+        def me(self):
+            return "demo_bot"
+    n = main.notifier(type("R", (), {"app": main.app})())
+    n.tg = TG()
+    login(c)
+    tok = re.search(r'name="csrf" value="([^"]+)"', c.get("/peer/5").text).group(1)
+    r = c.post("/peer/5/contacts", data={"csrf": tok, "tg_id": "999", "email": "anna@example.com", "with_email": "1"})
+    assert "Start" in r.text and portal.contact(conn, 5)["tg_chat_id"] is None       # бот не может писать — не сохраняем
+    c.post("/peer/5/contacts", data={"csrf": tok, "tg_id": "abc", "email": "", "with_email": "1"})
+    assert portal.contact(conn, 5)["tg_chat_id"] is None
+    c.post("/peer/5/contacts", data={"csrf": tok, "tg_id": "123456789", "email": "anna@example.com", "with_email": "1"})
+    ct = portal.contact(conn, 5)
+    assert ct["tg_chat_id"] == 123456789 and sent == [123456789] and ct["email"] == "anna@example.com" and ct["email_verified"] == 1
+    c.post("/peer/5/contacts", data={"csrf": tok, "tg_id": "123456789"})                # без поля почты — почта та же
+    assert portal.contact(conn, 5)["email"] == "anna@example.com" and sent == [123456789]
+    c.post("/peer/5/contacts", data={"csrf": tok, "tg_id": "", "email": "", "with_email": "1"})
+    ct = portal.contact(conn, 5)
+    assert ct["tg_chat_id"] is None and ct["email"] is None
+
+
+def login(c):
+    import os
+    tok = re.search(r'name="csrf" value="([^"]+)"', c.get("/login").text).group(1)
+    c.post("/login", data={"username": "admin", "password": "s3cret-password",
+                           "code": pyotp.TOTP(os.environ["TOTP_SECRET"]).now(), "csrf": tok})

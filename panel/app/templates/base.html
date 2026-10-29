@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>{% block title %}{{ _("AWG panel") }}{% endblock %}</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v={{ VERSION }}">
+  <script src="/static/app.js?v={{ VERSION }}" defer></script>
 </head>
 <body>
   {% if user %}

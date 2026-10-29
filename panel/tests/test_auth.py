@@ -119,6 +119,10 @@ def test_stage7_pages_render(client):
     for url in ("/?days=7", "/?days=30", "/hosts", "/hosts/youtube.com", "/events?kind=alert_*", "/alerts", "/server", "/archive"):
         r = client.get(url)
         assert r.status_code == 200, url
+    # фильтр по группе применяется скриптом — он подключён на каждой странице, с версией против старого кэша
+    from app import __version__
+    for url in ("/", "/hosts", "/events", "/archive", "/groups"):
+        assert f'src="/static/app.js?v={__version__}"' in client.get(url).text, url
     # открытая страница подсвечена в меню, в том числе вложенные (/hosts/… → «Sites»)
     assert '<a href="/hosts" class="on" aria-current="page">' in client.get("/hosts/youtube.com").text
     page = client.get("/server").text

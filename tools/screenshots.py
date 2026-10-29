@@ -5,6 +5,7 @@
 имена клиентов вымышленные. Входит тестовым администратором и снимает страницы Chrome без окна (DevTools Protocol).
 
     .venv/bin/python tools/screenshots.py            # → docs/screenshots/{en,ru}/*.png
+    .venv/bin/python tools/screenshots.py --serve 8765   # та же демо-панель, без снимков — для ручной проверки
 
 Нужны Google Chrome (или Edge) и пакеты панели из panel/requirements.txt (+ httpx).
 """
@@ -299,7 +300,7 @@ def main() -> None:
                     backups_total=37)
         return info
     panel.server_info = server_info
-    port = free_port()
+    port = int(sys.argv[sys.argv.index("--serve") + 1]) if "--serve" in sys.argv else free_port()
     server = uvicorn.Server(uvicorn.Config(panel.app, host="127.0.0.1", port=port, log_level="warning"))
     threading.Thread(target=server.run, daemon=True).start()
     base = f"http://127.0.0.1:{port}"
@@ -320,6 +321,15 @@ def main() -> None:
         r = c.post("/login", data={"username": "admin", "password": pw, "code": pyotp.TOTP(secret).now(), "csrf": csrf})
         cookie = c.cookies.get("awgp")
         assert cookie and r.status_code == 200, "login failed"
+    if "--serve" in sys.argv:
+        demo = tmp / "demo-login.txt"   # тестовые учётные данные демо-панели (временный каталог, удаляется)
+        demo.write_text(f"{base}\nadmin\n{pw}\n{secret}\n")
+        print(f"demo panel: {base} — login in {demo}", flush=True)
+        try:
+            while True:
+                time.sleep(3600)
+        finally:
+            server.should_exit = True
     profile = tempfile.mkdtemp(prefix="awg-chrome-")
     dport = free_port()
     chrome = subprocess.Popen([CHROME, "--headless=new", f"--remote-debugging-port={dport}", f"--user-data-dir={profile}",

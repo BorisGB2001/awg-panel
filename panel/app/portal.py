@@ -118,3 +118,21 @@ def take_config_code(conn: sqlite3.Connection, start: str, chat_id: int, name: s
     conn.execute("UPDATE contacts SET tg_chat_id = ?, tg_name = ?, cfg_code = NULL WHERE peer_id = ?", (chat_id, name, row["peer_id"]))
     db.event(conn, "contact_telegram", row["peer_id"], {"name": name})
     return row
+
+
+def set_contacts_by_admin(conn: sqlite3.Connection, peer_id: int, tg_id: int | None, tg_name: str | None,
+                          email: str | None, actor: str | None = None, actor_ip: str | None = None) -> None:
+    """Контакты клиента, введённые администратором: Telegram ID (уже проверен пробным сообщением) и e-mail
+    (адрес от администратора считается подтверждённым). Пустое поле — контакт удаляется."""
+    c = contact(conn, peer_id)
+    if email is not None:   # None — поля почты в форме не было: адрес не трогаем
+        email = email.strip()[:200]
+        if email and not EMAIL_RE.fullmatch(email):
+            raise ValueError(t("Invalid e-mail."))   # до любых изменений
+    conn.execute("UPDATE contacts SET tg_chat_id = ?, tg_name = ? WHERE peer_id = ?", (tg_id, tg_name if tg_id else None, peer_id))
+    if email is not None:
+        if email != (c["email"] or ""):
+            conn.execute("UPDATE contacts SET email = ?, email_verified = ?, email_code = NULL WHERE peer_id = ?",
+                         (email or None, int(bool(email)), peer_id))
+    db.event(conn, "contacts_set", peer_id, {"telegram": tg_name if tg_id else None,
+                                             "email": email if email is not None else c["email"]}, actor, actor_ip)
