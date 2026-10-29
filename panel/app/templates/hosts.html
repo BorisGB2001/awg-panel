@@ -4,7 +4,8 @@
 <section class="card">
   <div class="head">
     <h1>{{ _("Sites") }}</h1>
-    <form method="get" class="row-form"><input type="hidden" name="days" value="{{ days }}">
+    {% include "group_filter.html" %}
+    <form method="get" class="row-form"><input type="hidden" name="days" value="{{ days }}">{% if group %}<input type="hidden" name="group" value="{{ group }}">{% endif %}
       <input type="search" name="q" value="{{ q }}" placeholder="{{ _("domain") }}" aria-label="{{ _("Search by domain") }}"><button type="submit" class="secondary">{{ _("Find") }}</button></form>
     {% with tab_anchor="&q=" ~ (q|urlencode) %}{% include "tabs.html" %}{% endwith %}
   </div>

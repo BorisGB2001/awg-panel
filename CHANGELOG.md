@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.0 — 2026-10-30
+
+- Client groups: Groups page (clients, online, traffic today and this month, administrators per group), create,
+  rename and delete groups; move a client to a group on its card; choose the group when adding a client.
+- Group administrators: a new role that sees and manages only the clients of its groups — overview, client cards,
+  configs, sites, events, alerts, archive, CSV exports and blocking rules. Rules for everyone stay with super
+  administrators and are shown to group administrators read-only. Groups are assigned on the Administrators page.
+- Group filter on the overview, sites, events and archive pages.
+- Clients created in the AmneziaVPN app have no group and are visible to super administrators only.
+
 ## 1.2.0 — 2026-10-30
 
 - Administrator accounts in the panel database (Administrators page, super administrators only). The `.env`

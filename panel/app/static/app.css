@@ -134,3 +134,11 @@ label.check select { width: auto; display: inline-block; margin: 0; }
 .top .logout { display: flex; gap: 10px; align-items: center; }
 details.inline-details { display: inline-block; }
 details.inline-details[open] > summary { margin-bottom: 4px; }
+.group-checks { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.group-checks label.check { font-size: 13px; margin: 0; }
+.group-form select { width: auto; margin: 0; }
+.group-filter select { width: auto; margin: 0; }
+.tbl select { width: auto; min-width: 13em; margin: 0; }
+.group-checks label.check { flex-wrap: nowrap; white-space: nowrap; }
+.group-checks label.check input[type=checkbox] { display: inline-block; }
+.props .group-form { margin: 0; }

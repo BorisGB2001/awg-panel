@@ -20,7 +20,7 @@ from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import __version__, admins, auth, charts, clientconf, db, fmt, i18n, maintenance, monthly, notify, portal, report
+from . import __version__, admins, auth, charts, groups, clientconf, db, fmt, i18n, maintenance, monthly, notify, portal, report
 from .fmt import N_
 from .i18n import t
 from .awgctl import AWG, AwgUnavailable
@@ -29,6 +29,7 @@ from .blocker import PRESETS, Blocker, BlockError, rule_matches
 from .config import settings
 from .geo import Geo
 from .admins import AdminError
+from .groups import GroupError
 from .manage import Manager, ManageError, load_fernet
 from .flows import Flows
 from .names import NameCache
@@ -107,10 +108,51 @@ def current_user(request: Request) -> str | None:
     return row["username"] if row else None
 
 
-def require_super(request: Request) -> None:
+def is_super(request: Request) -> bool:
     row = current_admin(request)
-    if not row or row["role"] != "super":
+    return bool(row) and row["role"] == "super"
+
+
+def require_super(request: Request) -> None:
+    if not is_super(request):
         raise HTTPException(403, t("Only a super administrator can do this."))
+
+
+def allowed_groups(request: Request) -> set[int] | None:
+    """Группы, которые видит администратор: None — все (супер-администратор)."""
+    row = current_admin(request)
+    if row is None:
+        return set()
+    if row["role"] == "super":
+        return None
+    return groups.admin_group_ids(request.app.state.db, row["id"])
+
+
+def visible_peers(request: Request, group: str = "") -> set[int] | None:
+    """Клиенты, которых видно на странице: права администратора ∩ выбранная группа (?group=; 0 — «без группы»).
+    None — все клиенты (супер-администратор без фильтра)."""
+    conn = request.app.state.db
+    allowed = allowed_groups(request)
+    sel = int(group) if str(group).isdigit() else None
+    if allowed is None:
+        if sel is None:
+            return None
+        return groups.peers_without_group(conn) if sel == 0 else groups.peers_of(conn, {sel})
+    return groups.peers_of(conn, allowed if sel is None else allowed & {sel})
+
+
+def can_see_peer(request: Request, peer_id: int) -> bool:
+    v = visible_peers(request)
+    return v is None or peer_id in v
+
+
+def group_choices(request: Request) -> list:
+    """Группы для фильтров и форм: все — супер-администратору, свои — администратору группы."""
+    allowed = allowed_groups(request)
+    return [g for g in groups.all_groups(request.app.state.db) if allowed is None or g["id"] in allowed]
+
+
+PEER_PATH = re.compile(r"^/peer/(\d+)(?:/|$)")
 
 
 def csrf_token(request: Request) -> str:
@@ -152,6 +194,10 @@ async def require_login(request: Request, call_next):
     if row:
         if row["must_change"] and path not in ("/account", "/logout"):
             return RedirectResponse("/account", status_code=303)   # временный пароль — сначала сменить
+        m = PEER_PATH.match(path)
+        if m and not can_see_peer(request, int(m.group(1))):
+            # всё, что под /peer/<id>/ (карточка, конфиг, QR, действия), — только клиенты своих групп
+            return Response(t("Not found"), status_code=404, media_type="text/plain; charset=utf-8")
         return await call_next(request)
     if path.startswith("/api/"):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -319,41 +365,51 @@ ORDER BY (s.start IS NULL), COALESCE(p.last_handshake, 0) DESC, p.name
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request, days: int = 1):
+def index(request: Request, days: int = 1, group: str = ""):
     conn = request.app.state.db
     now = int(time.time())
     days = days if days in charts.RANGES else 1
     bucket, label = charts.RANGES[days]
-    rows = conn.execute(CLIENTS_SQL, (fmt.day_start(now),)).fetchall()
+    vp = visible_peers(request, group)
+    pw, pa = db.peer_filter(vp, "p.id")
+    tw, ta = db.peer_filter(vp, "peer_id")
+    rows = conn.execute(CLIENTS_SQL.replace("WHERE p.deleted_at IS NULL", "WHERE p.deleted_at IS NULL" + pw),
+                        (fmt.day_start(now), *pa)).fetchall()
     clients = [dict(r) | {"status": fmt.status(r, now, settings.online_window)} for r in rows]
     online = sum(c["status"] == "online" for c in clients)
-    totals = conn.execute("SELECT COALESCE(SUM(rx), 0), COALESCE(SUM(tx), 0) FROM traffic_hour WHERE ts >= ?",
-                          (now - 86400 - now % 3600,)).fetchone()
+    day_ago = now - 86400 - now % 3600
+    totals = conn.execute(f"SELECT COALESCE(SUM(rx), 0), COALESCE(SUM(tx), 0) FROM traffic_hour WHERE ts >= ?{tw}",
+                          (day_ago, *ta)).fetchone()
+    ew, ea = db.peer_filter(vp, "ev.peer_id")
     events = conn.execute(
         "SELECT ev.ts, ev.kind, ev.detail, p.name FROM events ev LEFT JOIN peers p ON p.id = ev.peer_id "
-        "ORDER BY ev.id DESC LIMIT 20").fetchall()
+        f"WHERE 1{ew} ORDER BY ev.id DESC LIMIT 20", ea).fetchall()
     poller = request.app.state.poller
     since = now - days * 86400
-    peak = conn.execute("SELECT COALESCE(MAX(online), 0) FROM online_min WHERE ts >= ?", (now - 86400,)).fetchone()[0]
-    alerts = conn.execute("SELECT COUNT(*) FROM events WHERE kind LIKE 'alert_%' AND acked = 0").fetchone()[0]
+    if vp is None:
+        peak = conn.execute("SELECT COALESCE(MAX(online), 0) FROM online_min WHERE ts >= ?", (now - 86400,)).fetchone()[0]
+        online_series = charts.online_series(conn, since, now, bucket)
+    else:   # онлайн по группе — клиенты с трафиком в эту минуту
+        peak = max((v for _, v, _ in charts.active_series(conn, now - 86400, now, 60, vp)), default=0)
+        online_series = charts.active_series(conn, since, now, bucket, vp)
+    alerts = conn.execute(f"SELECT COUNT(*) FROM events WHERE kind LIKE 'alert_%' AND acked = 0{tw}", ta).fetchone()[0]
     top_clients = conn.execute(
         "SELECT p.id, p.name, SUM(t.tx) d, SUM(t.rx) u FROM traffic_hour t JOIN peers p ON p.id = t.peer_id "
-        "WHERE t.ts >= ? GROUP BY p.id ORDER BY SUM(t.tx + t.rx) DESC LIMIT 10", (now - 86400 - now % 3600,)).fetchall()
+        f"WHERE t.ts >= ?{pw} GROUP BY p.id ORDER BY SUM(t.tx + t.rx) DESC LIMIT 10", (day_ago, *pa)).fetchall()
     month = monthly.current_month(now, fmt.TZ)
     m_start, _ = monthly.month_bounds(month, fmt.TZ)
 
     def top10(start: int) -> str:
         rows = conn.execute("SELECT p.id, p.name, SUM(t.tx) d FROM traffic_hour t JOIN peers p ON p.id = t.peer_id "
-                            "WHERE t.ts >= ? GROUP BY p.id ORDER BY d DESC LIMIT 10", (start,)).fetchall()
+                            f"WHERE t.ts >= ?{pw} GROUP BY p.id ORDER BY d DESC LIMIT 10", (start, *pa)).fetchall()
         return charts.hbars([(r["name"], r["d"], f"/peer/{r['id']}") for r in rows if r["d"]])
     return render(request, "index.html", clients=clients, online=online, rx24=totals[0], tx24=totals[1],
                   top_today=top10(fmt.day_start(now)), top_month=top10(m_start), month=month,
                   events=events, poll=poller.status if poller else None, now=now, days=days, peak=peak, alerts=alerts,
-                  top_clients=top_clients,
-                  traffic_chart=charts.bars(charts.traffic_series(conn, since, now, bucket), fmt.TZ, label),
-                  online_chart=charts.bars(charts.online_series(conn, since, now, bucket), fmt.TZ, label,
-                                           bytes_axis=False, legend=(t("online"), "")),
-                  top_sites=sites(conn, now - 86400, limit=15) if settings.collect_hosts else [])
+                  top_clients=top_clients, group=group, group_list=group_choices(request),
+                  traffic_chart=charts.bars(charts.traffic_series(conn, since, now, bucket, vp), fmt.TZ, label),
+                  online_chart=charts.bars(online_series, fmt.TZ, label, bytes_axis=False, legend=(t("online"), "")),
+                  top_sites=sites(conn, now - 86400, vp, limit=15) if settings.collect_hosts else [])
 
 
 def manager(request: Request) -> Manager:
@@ -380,26 +436,54 @@ def manage_action(request: Request, csrf: str, fn, ok: str, back: str, done=None
     return RedirectResponse(done(res) if done else back, status_code=303)
 
 
+def target_group(request: Request, group_id: str) -> int | None:
+    """Группа из формы с проверкой прав: супер-администратор — любая или «без группы»; администратор группы — только своя."""
+    allowed = allowed_groups(request)
+    gid = int(group_id) if group_id.isdigit() and group_id != "0" else None
+    if gid is not None and groups.get(request.app.state.db, gid) is None:
+        raise ManageError(t("Group not found."))
+    if allowed is not None and gid not in allowed:
+        raise ManageError(t("Choose one of your groups."))
+    return gid
+
+
 @app.post("/peers/add")
-def peer_add(request: Request, name: str = Form(""), note: str = Form(""), csrf: str = Form("")):
-    return manage_action(request, csrf, lambda **kw: manager(request).add(name, note, **kw),
-                         t("Client “{name}” added.", name=name.strip()), "/", lambda pid: f"/peer/{pid}")
+def peer_add(request: Request, name: str = Form(""), note: str = Form(""), group_id: str = Form(""), csrf: str = Form("")):
+    def go(**kw):
+        gid = target_group(request, group_id)          # права — до создания клиента
+        pid = manager(request).add(name, note, **kw)
+        if gid is not None:
+            groups.set_peer_group(request.app.state.db, pid, gid, **kw)
+        return pid
+    return manage_action(request, csrf, go, t("Client “{name}” added.", name=name.strip()), "/", lambda pid: f"/peer/{pid}")
 
 
-def sites(conn, since: int, peer_id: int | None = None, limit: int = 100) -> list[dict]:
-    """Сайты по базовому домену: обращения (DNS + SNI), клиенты, соединения и байты (conntrack)."""
-    where, args = ("AND peer_id = ?", (since, peer_id)) if peer_id else ("", (since,))
+@app.post("/peer/{peer_id}/group")
+def peer_group(request: Request, peer_id: int, group_id: str = Form(""), csrf: str = Form("")):
+    def go(**kw):
+        try:
+            groups.set_peer_group(request.app.state.db, peer_id, target_group(request, group_id), **kw)
+        except GroupError as e:
+            raise ManageError(str(e)) from e
+    return manage_action(request, csrf, go, t("Group changed."), f"/peer/{peer_id}")
+
+
+def sites(conn, since: int, peers=None, limit: int = 100) -> list[dict]:
+    """Сайты по базовому домену: обращения (DNS + SNI), клиенты, соединения и байты (conntrack).
+    peers — клиент, набор клиентов или None (все)."""
+    where, args = db.peer_filter(peers)
+    args = (since, *args)
     out: dict[str, dict] = {}
 
     def row(name: str) -> dict:
         b = fmt.base_domain(name)
         return out.setdefault(b, {"site": b, "names": set(), "req": 0, "peers": set(), "conns": 0, "down": 0, "up": 0})
 
-    for r in conn.execute(f"SELECT name, peer_id, SUM(count) n FROM dns WHERE ts >= ? {where} GROUP BY name, peer_id", args):
+    for r in conn.execute(f"SELECT name, peer_id, SUM(count) n FROM dns WHERE ts >= ?{where} GROUP BY name, peer_id", args):
         x = row(r["name"])
         x["names"].add(r["name"]); x["req"] += r["n"]; x["peers"].add(r["peer_id"])
     for r in conn.execute(f"SELECT host, peer_id, SUM(conns) c, SUM(bytes_down) d, SUM(bytes_up) u FROM flows "
-                          f"WHERE ts >= ? AND host IS NOT NULL {where} GROUP BY host, peer_id", args):
+                          f"WHERE ts >= ? AND host IS NOT NULL{where} GROUP BY host, peer_id", args):
         x = row(r["host"])
         x["names"].add(r["host"]); x["conns"] += r["c"]; x["down"] += r["d"]; x["up"] += r["u"]; x["peers"].add(r["peer_id"])
     rows = sorted(out.values(), key=lambda x: (x["down"] + x["up"], x["req"]), reverse=True)
@@ -415,8 +499,8 @@ def peer_page(request: Request, peer_id: int, days: int = 1):
     if row is None:
         raise HTTPException(404)
     peer = dict(row) | {"status": fmt.status(row, now, settings.online_window)}
-    extra = conn.execute("SELECT pubkey, note, source, deleted_at, private_key_enc IS NOT NULL AS has_key FROM peers WHERE id = ?",
-                         (peer_id,)).fetchone()
+    extra = conn.execute("SELECT pubkey, note, source, deleted_at, group_id, private_key_enc IS NOT NULL AS has_key "
+                         "FROM peers WHERE id = ?", (peer_id,)).fetchone()
     sessions = conn.execute("SELECT s.*, e.country, e.org FROM sessions s LEFT JOIN endpoints e "
                             "ON e.peer_id = s.peer_id AND e.ip = s.endpoint_ip WHERE s.peer_id = ? ORDER BY s.start DESC LIMIT 50",
                             (peer_id,)).fetchall()
@@ -435,6 +519,7 @@ def peer_page(request: Request, peer_id: int, days: int = 1):
     bucket, label = charts.RANGES[days]
     contact = portal.contact(conn, peer_id)
     return render(request, "peer.html", contact=contact, portal_on=extra_portal(conn, peer_id),
+                  group_list=group_choices(request), peer_group=groups.get(conn, extra["group_id"]) if extra["group_id"] else None,
                   portal_config=conn.execute("SELECT portal_config FROM peers WHERE id = ?", (peer_id,)).fetchone()[0],
                   notifier=request.app.state.notifier, peer=peer, extra=extra, sessions=sessions, endpoints=endpoints,
                   events=events, now=now, days=days, sites=site_rows, dnslog=dnslog,
@@ -533,9 +618,13 @@ def back_url(back: str) -> str:
 @app.get("/blocks", response_class=HTMLResponse)
 def blocks_page(request: Request):
     conn = request.app.state.db
-    rules = conn.execute("SELECT b.*, p.name AS peer_name FROM block_rules b LEFT JOIN peers p ON p.id = b.peer_id "
-                         "ORDER BY b.peer_id IS NOT NULL, p.name, b.preset, b.kind, b.value").fetchall()
-    peers = conn.execute("SELECT id, name, ip FROM peers WHERE deleted_at IS NULL ORDER BY name").fetchall()
+    vp = visible_peers(request)
+    # администратор группы: правила своих клиентов + глобальные (только просмотр — они действуют и на его клиентов)
+    rw, ra = ("", ()) if vp is None else (lambda w: (f" WHERE b.peer_id IS NULL OR (1{w[0]})", w[1]))(db.peer_filter(vp, "b.peer_id"))
+    rules = conn.execute("SELECT b.*, p.name AS peer_name FROM block_rules b LEFT JOIN peers p ON p.id = b.peer_id"
+                         f"{rw} ORDER BY b.peer_id IS NOT NULL, p.name, b.preset, b.kind, b.value", ra).fetchall()
+    pw, pa = db.peer_filter(vp, "id")
+    peers = conn.execute(f"SELECT id, name, ip FROM peers WHERE deleted_at IS NULL{pw} ORDER BY name", pa).fetchall()
     bypass = {k: int(db.get_state(conn, f"block_hits_{k}", "0")) for k in ("quic", "dot", "doh")}
     b = request.app.state.blocker
     return render(request, "blocks.html", rules=rules, peers=peers, presets=PRESETS, bypass=bypass,
@@ -556,11 +645,27 @@ def _scope(peer_id: str) -> int | None:
     return int(peer_id) if peer_id.isdigit() else None
 
 
+def rule_scope(request: Request, peer_id: int | None) -> int | None:
+    """Кому правило: супер-администратор — кому угодно или всем; администратор группы — только своему клиенту."""
+    if not is_super(request) and (peer_id is None or not can_see_peer(request, peer_id)):
+        raise BlockError(t("Choose one of your clients: rules for everyone are set by a super administrator."))
+    return peer_id
+
+
+def own_rule(request: Request, rule_id: int) -> int:
+    row = request.app.state.db.execute("SELECT peer_id FROM block_rules WHERE id = ?", (rule_id,)).fetchone()
+    if row is None:
+        raise BlockError(t("Rule not found."))
+    rule_scope(request, row["peer_id"])
+    return rule_id
+
+
 @app.post("/blocks/add")
 def blocks_add(request: Request, values: str = Form(""), peer_id: str = Form(""), note: str = Form(""),
                back: str = Form("/blocks"), csrf: str = Form("")):
     def go(**kw):
-        added, errors = blocker(request).add(values.replace(",", "\n").splitlines(), _scope(peer_id), note, **kw)
+        added, errors = blocker(request).add(values.replace(",", "\n").splitlines(), rule_scope(request, _scope(peer_id)),
+                                             note, **kw)
         return t("Rules added: {n}.", n=added) + (" " + t("Skipped: {items}", items="; ".join(errors)) if errors else "")
     return block_action(request, csrf, back, go, "")
 
@@ -573,31 +678,33 @@ def blocks_preset(request: Request, preset: str = Form(""), peer_id: str = Form(
         raise HTTPException(404)
 
     def go(**kw):
-        added, _ = blocker(request).add(PRESETS[preset], _scope(peer_id), preset=preset, **kw)
+        added, _ = blocker(request).add(PRESETS[preset], rule_scope(request, _scope(peer_id)), preset=preset, **kw)
         return t("Preset “{name}”: rules added {n}.", name=preset, n=added)
     return block_action(request, csrf, back, go, "")
 
 
 @app.post("/blocks/{rule_id}/toggle")
 def blocks_toggle(request: Request, rule_id: int, enabled: str = Form("0"), back: str = Form("/blocks"), csrf: str = Form("")):
-    return block_action(request, csrf, back, lambda **kw: blocker(request).set_enabled(rule_id, enabled == "1", **kw),
+    return block_action(request, csrf, back, lambda **kw: blocker(request).set_enabled(own_rule(request, rule_id), enabled == "1", **kw),
                         t("Rule enabled.") if enabled == "1" else t("Rule disabled."))
 
 
 @app.post("/blocks/{rule_id}/delete")
 def blocks_delete(request: Request, rule_id: int, back: str = Form("/blocks"), csrf: str = Form("")):
-    return block_action(request, csrf, back, lambda **kw: blocker(request).delete(rule_id, **kw), t("Rule deleted."))
+    return block_action(request, csrf, back, lambda **kw: blocker(request).delete(own_rule(request, rule_id), **kw),
+                        t("Rule deleted."))
 
 
 @app.get("/hosts", response_class=HTMLResponse)
-def hosts_page(request: Request, days: int = 1, q: str = ""):
+def hosts_page(request: Request, days: int = 1, q: str = "", group: str = ""):
     conn = request.app.state.db
     now = int(time.time())
     days = days if days in charts.RANGES else 1
-    rows = sites(conn, now - days * 86400, limit=500)
+    rows = sites(conn, now - days * 86400, visible_peers(request, group), limit=500)
     if q.strip():
         rows = [r for r in rows if q.strip().lower() in r["site"] or any(q.strip().lower() in n for n in r["names"])]
-    return render(request, "hosts.html", rows=rows[:300], days=days, q=q, collect_hosts=settings.collect_hosts)
+    return render(request, "hosts.html", rows=rows[:300], days=days, q=q, collect_hosts=settings.collect_hosts,
+                  group=group, group_list=group_choices(request))
 
 
 @app.get("/hosts/{site}", response_class=HTMLResponse)
@@ -607,16 +714,19 @@ def host_page(request: Request, site: str, days: int = 7):
     days = days if days in charts.RANGES else 7
     since = now - days * 86400
     pat = f"%.{site}"
+    vp = visible_peers(request)
+    dw, da = db.peer_filter(vp, "d.peer_id")
+    fw, fa = db.peer_filter(vp, "peer_id")
     who = conn.execute(
         "SELECT p.id, p.name, p.ip, SUM(d.count) req, MIN(d.ts) first, MAX(d.ts) last FROM dns d JOIN peers p ON p.id = d.peer_id "
-        "WHERE d.ts >= ? AND (d.name = ? OR d.name LIKE ?) GROUP BY p.id ORDER BY req DESC", (since, site, pat)).fetchall()
+        f"WHERE d.ts >= ? AND (d.name = ? OR d.name LIKE ?){dw} GROUP BY p.id ORDER BY req DESC", (since, site, pat, *da)).fetchall()
     traffic = {r["peer_id"]: r for r in conn.execute(
-        "SELECT peer_id, SUM(conns) c, SUM(bytes_down) d, SUM(bytes_up) u FROM flows WHERE ts >= ? AND (host = ? OR host LIKE ?) "
-        "GROUP BY peer_id", (since, site, pat))}
-    names = conn.execute("SELECT name, SUM(count) n FROM dns WHERE ts >= ? AND (name = ? OR name LIKE ?) GROUP BY name "
-                         "ORDER BY n DESC LIMIT 50", (since, site, pat)).fetchall()
-    ips = conn.execute("SELECT dst_ip, dport, proto, SUM(conns) c FROM flows WHERE ts >= ? AND (host = ? OR host LIKE ?) "
-                       "GROUP BY dst_ip, dport, proto ORDER BY c DESC LIMIT 30", (since, site, pat)).fetchall()
+        "SELECT peer_id, SUM(conns) c, SUM(bytes_down) d, SUM(bytes_up) u FROM flows WHERE ts >= ? AND (host = ? OR host LIKE ?)"
+        f"{fw} GROUP BY peer_id", (since, site, pat, *fa))}
+    names = conn.execute(f"SELECT name, SUM(count) n FROM dns WHERE ts >= ? AND (name = ? OR name LIKE ?){fw} GROUP BY name "
+                         "ORDER BY n DESC LIMIT 50", (since, site, pat, *fa)).fetchall()
+    ips = conn.execute(f"SELECT dst_ip, dport, proto, SUM(conns) c FROM flows WHERE ts >= ? AND (host = ? OR host LIKE ?){fw} "
+                       "GROUP BY dst_ip, dport, proto ORDER BY c DESC LIMIT 30", (since, site, pat, *fa)).fetchall()
     return render(request, "host.html", site=site, days=days, who=who, traffic=traffic, names=names, ips=ips)
 
 
@@ -624,8 +734,10 @@ EVENTS_SQL = """SELECT e.id, e.ts, e.kind, e.detail, e.actor, e.actor_ip, e.acke
 FROM events e LEFT JOIN peers p ON p.id = e.peer_id WHERE e.ts >= ? {filters} ORDER BY e.id DESC"""
 
 
-def events_query(conn, days: int, kind: str, peer_id: str, limit: int | None):
-    filters, args = "", [int(time.time()) - days * 86400]
+def events_query(conn, days: int, kind: str, peer_id: str, limit: int | None, peers=None):
+    """peers — видимые клиенты (None — все); у администратора группы нет событий без клиента (сервер, админы)."""
+    filters, args = db.peer_filter(peers, "e.peer_id")
+    args = [int(time.time()) - days * 86400, *args]
     if kind:
         filters += " AND e.kind LIKE ?"
         args.append(kind.rstrip("*") + "%" if kind.endswith("*") else kind)
@@ -642,17 +754,20 @@ EVENT_GROUPS = {"": N_("all"), "connect": N_("connections"), "disconnect": N_("d
 
 
 @app.get("/events", response_class=HTMLResponse)
-def events_page(request: Request, days: int = 7, kind: str = "", peer_id: str = ""):
+def events_page(request: Request, days: int = 7, kind: str = "", peer_id: str = "", group: str = ""):
     conn = request.app.state.db
     days = max(1, min(days, 365))
-    rows = events_query(conn, days, kind, peer_id, 1000)
-    peers = conn.execute("SELECT id, name FROM peers ORDER BY name").fetchall()
-    return render(request, "events.html", rows=rows, days=days, kind=kind, peer_id=peer_id, peers=peers, groups=EVENT_GROUPS)
+    vp = visible_peers(request, group)
+    rows = events_query(conn, days, kind, peer_id, 1000, vp)
+    pw, pa = db.peer_filter(vp, "id")
+    peers = conn.execute(f"SELECT id, name FROM peers WHERE 1{pw} ORDER BY name", pa).fetchall()
+    return render(request, "events.html", rows=rows, days=days, kind=kind, peer_id=peer_id, peers=peers, groups=EVENT_GROUPS,
+                  group=group, group_list=group_choices(request))
 
 
 @app.get("/events.csv")
-def events_csv(request: Request, days: int = 7, kind: str = "", peer_id: str = ""):
-    rows = events_query(request.app.state.db, max(1, min(days, 365)), kind, peer_id, None)
+def events_csv(request: Request, days: int = 7, kind: str = "", peer_id: str = "", group: str = ""):
+    rows = events_query(request.app.state.db, max(1, min(days, 365)), kind, peer_id, None, visible_peers(request, group))
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
     w.writerow([t("time"), t("client"), t("event"), t("description"), t("who"), t("admin IP"), t("details JSON")])
@@ -666,9 +781,10 @@ def events_csv(request: Request, days: int = 7, kind: str = "", peer_id: str = "
 
 @app.get("/alerts", response_class=HTMLResponse)
 def alerts_page(request: Request, days: int = 30):
+    ew, ea = db.peer_filter(visible_peers(request), "e.peer_id")
     rows = request.app.state.db.execute(
-        "SELECT e.*, p.name FROM events e LEFT JOIN peers p ON p.id = e.peer_id WHERE e.kind LIKE 'alert_%' AND e.ts >= ? "
-        "ORDER BY e.acked, e.id DESC LIMIT 500", (int(time.time()) - max(1, min(days, 365)) * 86400,)).fetchall()
+        "SELECT e.*, p.name FROM events e LEFT JOIN peers p ON p.id = e.peer_id WHERE e.kind LIKE 'alert_%' AND e.ts >= ?"
+        f"{ew} ORDER BY e.acked, e.id DESC LIMIT 500", (int(time.time()) - max(1, min(days, 365)) * 86400, *ea)).fetchall()
     return render(request, "alerts.html", rows=rows, days=days)
 
 
@@ -676,10 +792,11 @@ def alerts_page(request: Request, days: int = 30):
 def alerts_ack(request: Request, alert_id: str = Form(""), csrf: str = Form("")):
     check_csrf(request, csrf)
     conn = request.app.state.db
+    ew, ea = db.peer_filter(visible_peers(request), "peer_id")
     if alert_id.isdigit():
-        conn.execute("UPDATE events SET acked = 1 WHERE id = ? AND kind LIKE 'alert_%'", (int(alert_id),))
+        conn.execute(f"UPDATE events SET acked = 1 WHERE id = ? AND kind LIKE 'alert_%'{ew}", (int(alert_id), *ea))
     else:
-        conn.execute("UPDATE events SET acked = 1 WHERE kind LIKE 'alert_%' AND acked = 0")
+        conn.execute(f"UPDATE events SET acked = 1 WHERE kind LIKE 'alert_%' AND acked = 0{ew}", ea)
     return RedirectResponse("/alerts", status_code=303)
 
 
@@ -723,6 +840,65 @@ def server_info(request: Request) -> dict:
     return info
 
 
+# ---- группы ----
+
+def group_rows(request: Request) -> list[dict]:
+    """Видимые группы с итогами: клиенты, онлайн, трафик сегодня и за месяц, администраторы."""
+    conn = request.app.state.db
+    now = int(time.time())
+    m_start, _ = monthly.month_bounds(monthly.current_month(now, fmt.TZ), fmt.TZ)
+    admins_by = groups.admins_of(conn)
+    online_since = now - settings.online_window
+    out = []
+    for g in group_choices(request):
+        stat = conn.execute(
+            "SELECT COALESCE(SUM(CASE WHEN t.ts >= ? THEN t.tx END), 0) d_today, COALESCE(SUM(CASE WHEN t.ts >= ? THEN t.rx END), 0) "
+            "u_today, COALESCE(SUM(t.tx), 0) d_month, COALESCE(SUM(t.rx), 0) u_month FROM traffic_hour t "
+            "JOIN peers p ON p.id = t.peer_id WHERE p.group_id = ? AND t.ts >= ?",
+            (fmt.day_start(now), fmt.day_start(now), g["id"], m_start)).fetchone()
+        online = conn.execute("SELECT COUNT(*) FROM peers WHERE group_id = ? AND deleted_at IS NULL AND disabled = 0 "
+                              "AND last_handshake >= ?", (g["id"], online_since)).fetchone()[0]
+        out.append(dict(g) | dict(stat) | {"online": online, "admins": admins_by.get(g["id"], [])})
+    return out
+
+
+@app.get("/groups", response_class=HTMLResponse)
+def groups_page(request: Request):
+    conn = request.app.state.db
+    nogroup = conn.execute("SELECT COUNT(*) FROM peers WHERE group_id IS NULL AND deleted_at IS NULL").fetchone()[0]
+    return render(request, "groups.html", rows=group_rows(request), nogroup=nogroup)
+
+
+def group_action(request: Request, csrf: str, fn, ok: str) -> RedirectResponse:
+    require_super(request)
+    check_csrf(request, csrf)
+    try:
+        fn(actor=current_user(request), actor_ip=client_ip(request))
+    except GroupError as e:
+        flash(request, str(e), "error")
+        return RedirectResponse("/groups", status_code=303)
+    flash(request, ok)
+    return RedirectResponse("/groups", status_code=303)
+
+
+@app.post("/groups/add")
+def groups_add(request: Request, name: str = Form(""), note: str = Form(""), csrf: str = Form("")):
+    return group_action(request, csrf, lambda **kw: groups.create(request.app.state.db, name, note, **kw),
+                        t("Group “{name}” created.", name=" ".join(name.split())))
+
+
+@app.post("/groups/{group_id}/update")
+def groups_update(request: Request, group_id: int, name: str = Form(""), note: str = Form(""), csrf: str = Form("")):
+    return group_action(request, csrf, lambda **kw: groups.update(request.app.state.db, group_id, name, note, **kw),
+                        t("Group saved."))
+
+
+@app.post("/groups/{group_id}/delete")
+def groups_delete(request: Request, group_id: int, csrf: str = Form("")):
+    return group_action(request, csrf, lambda **kw: groups.delete(request.app.state.db, group_id, **kw),
+                        t("Group deleted; its clients now have no group."))
+
+
 # ---- учётки администраторов ----
 
 @app.get("/account", response_class=HTMLResponse)
@@ -746,7 +922,10 @@ def account_password(request: Request, current: str = Form(""), new: str = Form(
 @app.get("/admins", response_class=HTMLResponse)
 def admins_page(request: Request):
     require_super(request)
-    return render(request, "admins.html", rows=admins.all_admins(request.app.state.db), roles=admins.creatable_roles(),
+    conn = request.app.state.db
+    return render(request, "admins.html", rows=admins.all_admins(conn), roles=admins.creatable_roles(),
+                  group_list=groups.all_groups(conn),
+                  member={a["id"]: groups.admin_group_ids(conn, a["id"]) for a in admins.all_admins(conn)},
                   new_password=request.session.pop("new_password", None))
 
 
@@ -799,6 +978,13 @@ def admins_role(request: Request, admin_id: int, role: str = Form(""), csrf: str
                         t("Role changed."))
 
 
+@app.post("/admins/{admin_id}/groups")
+def admins_groups(request: Request, admin_id: int, group_ids: list[str] = Form([]), csrf: str = Form("")):
+    ids = {int(g) for g in group_ids if g.isdigit()}
+    return admin_action(request, csrf, lambda **kw: groups.set_admin_groups(request.app.state.db, admin_id, ids, **kw),
+                        t("Groups of the administrator saved."))
+
+
 @app.post("/admins/{admin_id}/delete")
 def admins_delete(request: Request, admin_id: int, csrf: str = Form("")):
     return admin_action(request, csrf, lambda **kw: request.app.state.accounts.delete(admin_id, **kw),
@@ -812,13 +998,15 @@ def server_page(request: Request):
 
 
 @app.get("/archive", response_class=HTMLResponse)
-def archive_page(request: Request, month: str = ""):
+def archive_page(request: Request, month: str = "", group: str = ""):
     conn = request.app.state.db
     months = [r[0] for r in conn.execute("SELECT DISTINCT month FROM monthly_archive ORDER BY month DESC")]
     month = month if month in months else (months[0] if months else "")
-    rows = conn.execute("SELECT * FROM monthly_archive WHERE month = ? ORDER BY tx DESC", (month,)).fetchall()
+    pw, pa = db.peer_filter(visible_peers(request, group))
+    rows = conn.execute(f"SELECT * FROM monthly_archive WHERE month = ?{pw} ORDER BY tx DESC", (month, *pa)).fetchall()
     chart = charts.hbars([(r["name"] or r["ip"], r["tx"], f"/peer/{r['peer_id']}") for r in rows[:10] if r["tx"]])
     return render(request, "archive.html", months=months, month=month, rows=rows, chart=chart,
+                  group=group, group_list=group_choices(request),
                   total=(sum(r["tx"] for r in rows), sum(r["rx"] for r in rows)))
 
 
@@ -828,10 +1016,12 @@ def csv_cell(v):
 
 
 @app.get("/archive/{month}.csv")
-def archive_csv(request: Request, month: str):
+def archive_csv(request: Request, month: str, group: str = ""):
     if not re.fullmatch(r"\d{4}-\d{2}", month):
         raise HTTPException(404)
-    rows = request.app.state.db.execute("SELECT * FROM monthly_archive WHERE month = ? ORDER BY tx DESC", (month,)).fetchall()
+    pw, pa = db.peer_filter(visible_peers(request, group))
+    rows = request.app.state.db.execute(f"SELECT * FROM monthly_archive WHERE month = ?{pw} ORDER BY tx DESC",
+                                        (month, *pa)).fetchall()
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
     w.writerow([t("month"), t("client"), "IP", t("downloaded, bytes"), t("uploaded, bytes"), t("sessions"), t("online, h")])

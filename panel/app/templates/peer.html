@@ -10,6 +10,15 @@
   </div>
   <dl class="props">
     <dt>{{ _("VPN IP") }}</dt><dd><code>{{ peer.ip }}</code></dd>
+    <dt>{{ _("Group") }}</dt><dd>
+      <form method="post" action="/peer/{{ peer.id }}/group" class="row-form group-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <select name="group_id" aria-label="{{ _("Group") }}">
+          {% if admin.role == "super" %}<option value="0">{{ _("no group") }}</option>{% endif %}
+          {% for g in group_list %}<option value="{{ g.id }}"{% if peer_group and g.id == peer_group.id %} selected{% endif %}>{{ g.name }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="secondary small-btn">{{ _("Move") }}</button>
+      </form></dd>
     <dt>{{ _("Key") }}</dt><dd><code class="small">{{ extra.pubkey }}</code></dd>
     <dt>{{ _("Created") }}</dt><dd>{{ peer.created_at|dt("%d.%m.%Y %H:%M") }} · {{ _("in the panel") if extra.source == "panel" else _("in the AmneziaVPN app") }}</dd>
     <dt>{{ _("Last handshake") }}</dt><dd>{{ peer.last_handshake|ago(now) }}</dd>

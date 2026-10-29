@@ -36,6 +36,8 @@ EVENT_NAMES = {
     "acct_disabled": N_("administrator disabled"), "acct_enabled": N_("administrator enabled"),
     "acct_reset": N_("administrator password reset"), "acct_role": N_("administrator role changed"),
     "acct_password": N_("administrator changed password"), "acct_totp_bound": N_("administrator set up the authenticator"),
+    "group_created": N_("group created"), "group_renamed": N_("group renamed"), "group_deleted": N_("group deleted"),
+    "group_member": N_("moved to a group"), "acct_groups": N_("administrator groups changed"),
     "client_view": N_("client portal opened"), "contact_telegram": N_("Telegram connected"), "contact_email": N_("e-mail confirmed"),
 }
 

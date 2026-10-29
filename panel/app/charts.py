@@ -5,6 +5,7 @@ import datetime
 from html import escape
 from zoneinfo import ZoneInfo
 
+from . import db
 from .fmt import N_, size
 from .i18n import t
 
@@ -76,11 +77,12 @@ def heatmap(cells: dict[tuple[int, int], float]) -> str:
 
 # ---- выборки ----
 
-def traffic_series(conn, since: int, now: int, bucket: int, peer_id: int | None = None) -> list[tuple[int, float, float]]:
-    """(начало, скачано, отдано) по интервалам bucket секунд; ≤ суток — из traffic_min, дальше — из traffic_hour."""
+def traffic_series(conn, since: int, now: int, bucket: int, peers=None) -> list[tuple[int, float, float]]:
+    """(начало, скачано, отдано) по интервалам bucket секунд; ≤ суток — из traffic_min, дальше — из traffic_hour.
+    peers — клиент, набор клиентов или None (все), как в db.peer_filter."""
     table = "traffic_min" if bucket < 3600 else "traffic_hour"
-    where, args = ("AND peer_id = ?", (since, peer_id)) if peer_id else ("", (since,))
-    rows = conn.execute(f"SELECT ts, SUM(tx) d, SUM(rx) u FROM {table} WHERE ts >= ? {where} GROUP BY ts", args).fetchall()
+    where, args = db.peer_filter(peers)
+    rows = conn.execute(f"SELECT ts, SUM(tx) d, SUM(rx) u FROM {table} WHERE ts >= ?{where} GROUP BY ts", (since, *args)).fetchall()
     agg: dict[int, list[float]] = {}
     for r in rows:
         k = r["ts"] - r["ts"] % bucket
@@ -101,10 +103,23 @@ def online_series(conn, since: int, now: int, bucket: int) -> list[tuple[int, fl
     return [(t, agg.get(t, 0), 0) for t in range(start, now + 1, bucket)]
 
 
-def activity_cells(conn, peer_id: int | None, since: int, tz: ZoneInfo) -> dict[tuple[int, int], float]:
-    where, args = ("AND peer_id = ?", (since, peer_id)) if peer_id else ("", (since,))
+def active_series(conn, since: int, now: int, bucket: int, peers) -> list[tuple[int, float, float]]:
+    """Сколько клиентов из набора были активны (был трафик) — максимум по минутам внутри интервала."""
+    where, args = db.peer_filter(peers)
+    rows = conn.execute(f"SELECT ts, COUNT(DISTINCT peer_id) n FROM traffic_min WHERE ts >= ? AND (rx + tx) > 0{where} "
+                        "GROUP BY ts", (since, *args)).fetchall()
+    agg: dict[int, int] = {}
+    for r in rows:
+        k = r["ts"] - r["ts"] % bucket
+        agg[k] = max(agg.get(k, 0), r["n"])
+    start = since - since % bucket
+    return [(t, agg.get(t, 0), 0) for t in range(start, now + 1, bucket)]
+
+
+def activity_cells(conn, peers, since: int, tz: ZoneInfo) -> dict[tuple[int, int], float]:
+    where, args = db.peer_filter(peers)
     cells: dict[tuple[int, int], float] = {}
-    for r in conn.execute(f"SELECT ts, SUM(rx + tx) b FROM traffic_hour WHERE ts >= ? {where} GROUP BY ts", args):
+    for r in conn.execute(f"SELECT ts, SUM(rx + tx) b FROM traffic_hour WHERE ts >= ?{where} GROUP BY ts", (since, *args)):
         t = datetime.datetime.fromtimestamp(r["ts"], tz)
         cells[(t.weekday(), t.hour)] = cells.get((t.weekday(), t.hour), 0) + r["b"]
     return cells

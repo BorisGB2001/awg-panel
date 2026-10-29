@@ -29,6 +29,7 @@
 <section class="card">
   <div class="head">
     <h1>{{ _("Clients") }}</h1>
+    {% include "group_filter.html" %}
     <input type="search" id="filter" placeholder="{{ _("Search by name or IP") }}" aria-label="{{ _("Search") }}">
     <select id="status-filter" aria-label="{{ _("Status") }}"><option value="">{{ _("all statuses") }}</option>
       {% for k in STATUS_KEYS %}<option value="{{ k }}">{{ status_name(k) }}</option>{% endfor %}</select>
@@ -38,6 +39,12 @@
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <label>{{ _("Name") }} <input name="name" required maxlength="64" placeholder="{{ _("e.g. John iPhone") }}"></label>
         <label>{{ _("Note") }} <input name="note" maxlength="500"></label>
+        {% if group_list or admin.role != "super" %}
+        <label>{{ _("Group") }} <select name="group_id"{% if admin.role != "super" %} required{% endif %}>
+          {% if admin.role == "super" %}<option value="0">{{ _("no group") }}</option>{% endif %}
+          {% for g in group_list %}<option value="{{ g.id }}"{% if group == g.id|string %} selected{% endif %}>{{ g.name }}</option>{% endfor %}
+        </select></label>
+        {% endif %}
         <button type="submit">{{ _("Add") }}</button>
         <p class="muted small">{{ _("The IP is assigned automatically: the next one after the highest. The client appears in the AmneziaVPN app at once, the server is not restarted.") }}</p>
       </form>

@@ -136,4 +136,4 @@ def test_sites_aggregation(tmp_path):
     rows = {r["site"]: r for r in sites(conn, 0)}
     assert rows["youtube.com"]["req"] == 4 and len(rows["youtube.com"]["peers"]) == 2
     assert rows["googlevideo.com"]["down"] == 5000
-    assert [r["site"] for r in sites(conn, 0, peer_id=2)] == ["youtube.com"]
+    assert [r["site"] for r in sites(conn, 0, 2)] == ["youtube.com"]

@@ -36,3 +36,6 @@
     }, 60000);
   }
 })();
+
+// Списки-фильтры (группа и т. п.) применяются сразу при выборе — без встроенных обработчиков из-за CSP.
+document.querySelectorAll("select[data-autosubmit]").forEach((s) => s.addEventListener("change", () => s.form.submit()));

@@ -159,6 +159,22 @@ MIGRATIONS: list[str] = [
         created_at INT, last_login INT, last_ip TEXT, note TEXT
     );
     """,
+    # 8: группы клиентов и их администраторы; клиент без группы — group_id NULL
+    """
+    CREATE TABLE groups (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        note TEXT,
+        created_at INT
+    );
+    ALTER TABLE peers ADD COLUMN group_id INT;
+    CREATE INDEX peers_group ON peers(group_id);
+    CREATE TABLE admin_groups (
+        admin_id INT NOT NULL,
+        group_id INT NOT NULL,
+        PRIMARY KEY (admin_id, group_id)
+    );
+    """,
 ]
 
 
@@ -223,6 +239,18 @@ def open_db(path: Path | str) -> sqlite3.Connection:
         if f.exists():
             os.chmod(f, 0o600)
     return conn
+
+
+def peer_filter(peers, col: str = "peer_id") -> tuple[str, tuple]:
+    """Условие « AND col …» для выборок по клиентам: None — все; int — один; набор id — только они (пустой — никого)."""
+    if peers is None:
+        return "", ()
+    if isinstance(peers, int):
+        return f" AND {col} = ?", (peers,)
+    ids = tuple(sorted(peers))
+    if not ids:
+        return " AND 0", ()
+    return f" AND {col} IN ({','.join('?' * len(ids))})", ids
 
 
 def event(conn: sqlite3.Connection, kind: str, peer_id: int | None = None, detail: dict | None = None,

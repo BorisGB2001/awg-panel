@@ -22,7 +22,7 @@ from .i18n import t
 ROLES = ("super", "group")
 # роль «администратор группы» включается вместе с ограничением прав по группам (AWGPANEL-69): до этого
 # такой администратор видел бы всех клиентов
-GROUP_ROLE_READY = False
+GROUP_ROLE_READY = True
 
 
 def creatable_roles() -> tuple[str, ...]:
@@ -182,6 +182,7 @@ class Accounts:
         if row["role"] == "super" and self._supers_left(admin_id) == 0:
             raise AdminError(t("The last active super administrator cannot be disabled."))
         self.conn.execute("DELETE FROM admins WHERE id = ?", (admin_id,))
+        self.conn.execute("DELETE FROM admin_groups WHERE admin_id = ?", (admin_id,))
         db.event(self.conn, "acct_deleted", None, {"username": row["username"]}, actor, actor_ip)
 
     # ---- своя учётка ----

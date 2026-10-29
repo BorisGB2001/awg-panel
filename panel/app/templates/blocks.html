@@ -10,8 +10,8 @@
     <label>{{ _("Domains or IPs — one per line (subdomains are blocked together with the domain)") }}
       <textarea name="values" rows="4" required placeholder="youtube.com&#10;tiktok.com&#10;142.250.0.0/15"></textarea></label>
     <label>{{ _("For whom") }}
-      <select name="peer_id">
-        <option value="">{{ _("All clients") }}</option>
+      <select name="peer_id"{% if admin.role != "super" %} required{% endif %}>
+        {% if admin.role == "super" %}<option value="">{{ _("All clients") }}</option>{% endif %}
         {% for p in peers %}<option value="{{ p.id }}">{{ p.name }} ({{ p.ip }})</option>{% endfor %}
       </select></label>
     <label>{{ _("Comment") }} <input name="note" maxlength="200"></label>
@@ -27,8 +27,8 @@
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="preset" value="{{ name }}">
     <b class="preset-name">{{ name }}</b>
-    <select name="peer_id" aria-label="{{ _("For whom") }}">
-      <option value="">{{ _("for everyone") }}</option>
+    <select name="peer_id" aria-label="{{ _("For whom") }}"{% if admin.role != "super" %} required{% endif %}>
+      {% if admin.role == "super" %}<option value="">{{ _("for everyone") }}</option>{% endif %}
       {% for p in peers %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
     </select>
     <button type="submit">{{ _("Block") }}</button>
@@ -50,6 +50,7 @@
       <td class="num">{{ r.hits }}</td>
       <td class="nowrap muted">{{ r.hits_ts|dt if r.hits_ts else "—" }}</td>
       <td class="nowrap">
+        {% if r.peer_id or admin.role == "super" %}
         <form method="post" action="/blocks/{{ r.id }}/toggle" class="inline">
           <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="enabled" value="{{ 0 if r.enabled else 1 }}">
           <button type="submit" class="secondary small-btn">{{ _("Disable") if r.enabled else _("Enable") }}</button>
@@ -58,6 +59,7 @@
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <button type="submit" class="danger small-btn">{{ _("Delete") }}</button>
         </form>
+        {% else %}<span class="muted small">{{ _("set by a super administrator") }}</span>{% endif %}
       </td>
     </tr>
     {% else %}<tr><td class="muted">{{ _("No rules yet.") }}</td></tr>{% endfor %}

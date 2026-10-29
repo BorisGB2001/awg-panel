@@ -90,7 +90,7 @@ def test_env_admin_protected_and_role_checks(client):
         except admins.AdminError:
             pass
     try:
-        acc.create("grp.admin", "group")                          # роль группы включится с AWGPANEL-69
+        acc.create("x.admin", "owner")                            # неизвестная роль
         raise AssertionError
     except admins.AdminError:
         pass
