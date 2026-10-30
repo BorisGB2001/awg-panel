@@ -113,9 +113,9 @@ def test_job_settings_schedule_and_delivery(tmp_path, monkeypatch):
     wed3 = int(datetime.datetime(2026, 10, 28, 3, 10, tzinfo=fmt.TZ).timestamp())    # среда, 03:10
     assert b.due(wed3 - 86400) == 0                       # вторник — не тот день
     assert b.due(wed3) == 1 and b.due(wed3 + 600) == 0    # один раз в день
-    assert n.docs[0][0] == 42 and n.docs[0][1].endswith(".awgbak") and mails[0][0] == "boss@example.com"
-    data = backup.decrypt(n.docs[0][2], "p4ssword")
-    assert "panel.db" in tarfile.open(fileobj=io.BytesIO(data)).getnames()
+    assert n.docs[0][0] == 42 and n.docs[0][1].endswith(".tar.gz.enc") and mails[0][0] == "boss@example.com"
+    data = backup.decrypt_openssl(n.docs[0][2], "p4ssword")                       # супер-админ — полный бэкап
+    assert "awg-full/panel-data/panel.db" in tarfile.open(fileobj=io.BytesIO(data)).getnames()
     j = backup.job(conn, 1)
     assert j["last_ok"] == 1 and "Telegram" in j["last_status"]
 
@@ -124,12 +124,15 @@ def test_backups_page_and_restore_route(client, monkeypatch):  # noqa: F811
     from app import main
     _login(client)
     page = client.get("/backups").text
-    assert "whole portal" in page and 'action="/backups/restore"' in page
+    assert "the full server" in page and "install.sh" in page and 'action="/backups/restore"' in page
     tok = _csrf(page)
     client.post("/backups/save", data={"csrf": tok, "enabled": "1", "to_telegram": "1", "period": "daily", "hour": "3",
                                        "weekday": "0", "password": "p4ssword"})
     conn = main.app.state.db
     assert backup.job(conn, conn.execute("SELECT id FROM admins WHERE env = 1").fetchone()[0])["enabled"] == 1
+    r = client.post("/backups/download", data={"csrf": tok})                    # скачать из браузера
+    assert r.headers["content-type"] == "application/octet-stream" and r.content.startswith(b"Salted__")
+    assert "awg-full/install.sh" in tarfile.open(fileobj=io.BytesIO(backup.decrypt_openssl(r.content, "p4ssword"))).getnames()
     conn.execute("INSERT INTO groups (name) VALUES ('Из бэкапа')")
     blob = backup.encrypt(backup.portal_archive(main.settings.db_path, str(main.settings.data_dir), None), "p4ssword")
     restarted = []
@@ -150,3 +153,56 @@ def test_group_admin_has_no_restore(client, world):  # noqa: F811
 
 
 from tests.test_groups import world  # noqa: E402,F401 — фикстура
+
+
+def test_full_backup_openssl_compatible_and_complete(env, tmp_path, monkeypatch):  # noqa: F811
+    """Полный бэкап: системный openssl расшифровывает командой из RESTORE.txt, tar распаковывает, суммы сходятся,
+    внутри — всё для install.sh; и та же панель восстанавливает из него базу и файлы AmneziaWG."""
+    import json
+    import shutil
+    import subprocess
+    m, awg, d, _ = env
+    s = m.s
+    host = tmp_path / "host"
+    (host / "panel" / "app").mkdir(parents=True)
+    (host / "docker-compose.yml").write_text("services: {}\n")
+    (host / "deploy.sh").write_text("#!/bin/sh\n")
+    (host / "panel" / "app" / "main.py").write_text("# code\n")
+    (host / "data").mkdir()
+    (host / "data" / "panel.db").write_text("must not be copied as source")
+    (host / ".env").write_text("PANEL_HOST=203.0.113.10\nPANEL_PORT=14443\n")
+    monkeypatch.setattr(backup, "ENV_FILE", str(host / ".env"))
+    root = tmp_path / "hostroot" / "opt" / "amnezia" / "amnezia-awg2"
+    root.mkdir(parents=True)
+    (root / "Dockerfile").write_text("FROM amneziavpn/amneziawg-go:latest\n")
+    monkeypatch.setattr(backup, "HOST_ROOT", str(tmp_path / "hostroot"))
+    (d.parent / "start.sh").write_text("#!/bin/bash\nawg-quick up /opt/amnezia/awg/awg0.conf\n")
+    conn = db.open_db(s.db_path)
+    conn.execute("INSERT INTO groups (name) VALUES ('Полный')")
+    raw = backup.full_archive(s.db_path, str(s.data_dir), awg, host_dir=str(host))
+    blob = backup.encrypt_openssl(raw, "p4ss word")
+    assert blob.startswith(b"Salted__")
+    enc = tmp_path / "awg-full.tar.gz.enc"
+    enc.write_bytes(blob)
+    out = tmp_path / "out"
+    out.mkdir()
+    if shutil.which("openssl"):
+        r = subprocess.run(f"openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -md sha256 -pass pass:'p4ss word' -in {enc} | tar xz -C {out}",
+                           shell=True, capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        full = out / "awg-full"
+        names = {str(p.relative_to(full)) for p in full.rglob("*") if p.is_file()}
+        assert {"install.sh", "RESTORE.txt", "meta.json", "SHA256SUMS", "panel/docker-compose.yml", "panel/deploy.sh",
+                "panel/panel/app/main.py", "panel-data/panel.db", "panel-data/panel.env", "amnezia/Dockerfile",
+                "amnezia/start.sh", "amnezia/awg/awg0.conf", "amnezia/awg/clientsTable"} <= names
+        assert not any(n.startswith("panel/data/") for n in names) and "panel/.env" not in names
+        assert os.access(full / "install.sh", os.X_OK)
+        meta = json.loads((full / "meta.json").read_text())
+        assert meta["panel_host"] == "203.0.113.10" and meta["awg"]["port"] == "51820" and meta["awg"]["container"] == "amnezia-awg2"
+        check = "sha256sum -c --quiet SHA256SUMS" if shutil.which("sha256sum") else "shasum -a 256 -c --quiet SHA256SUMS"
+        assert subprocess.run(check, shell=True, cwd=full).returncode == 0
+        assert subprocess.run(["bash", "-n", str(full / "install.sh")]).returncode == 0
+    with pytest.raises(backup.BackupError):
+        backup.decrypt_openssl(blob, "wrong")
+    files = backup.read_archive(blob, "p4ss word")             # панель понимает новый формат
+    assert files["panel.db"].startswith(backup.SQLITE_HEADER) and "amnezia-awg/awg0.conf" in files and "panel.env" in files

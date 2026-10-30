@@ -19,6 +19,7 @@ from __future__ import annotations
 import csv
 import datetime
 import getpass
+import glob
 import hashlib
 import io
 import logging
@@ -39,7 +40,11 @@ from .i18n import t
 log = logging.getLogger("backup")
 
 MAGIC = b"AWGBAK1\n"
-ENV_FILE = os.environ.get("PANEL_ENV_FILE", "/srv/host.env")   # .env панели, смонтирован только для чтения
+HOST_DIR = os.environ.get("PANEL_HOST_DIR", "/srv/host")       # каталог установки панели, смонтирован только для чтения
+ENV_FILE = os.environ.get("PANEL_ENV_FILE", os.path.join(HOST_DIR, ".env"))
+HOST_ROOT = os.environ.get("PANEL_HOST_ROOT", "/proc/1/root")   # корень хоста (pid: host) — Dockerfile AmneziaWG
+KIT = os.path.join(os.path.dirname(__file__), "restore_kit")    # install.sh и инструкция для полного бэкапа
+OPENSSL_ITER = 600000
 SQLITE_HEADER = b"SQLite format 3\x00"
 MIN_PASSWORD = 8
 PERIODS = ("daily", "weekly")
@@ -69,6 +74,37 @@ def decrypt(blob: bytes, passphrase: str) -> bytes:
         return AESGCM(_key(passphrase, salt)).decrypt(nonce, body, MAGIC)
     except Exception as e:  # cryptography.exceptions.InvalidTag
         raise BackupError(t("Wrong password or the file is damaged.")) from e
+
+
+# ---- формат openssl enc: полный бэкап расшифровывается на голом сервере одной командой ----
+#   openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -md sha256 -in <файл> | tar xz
+
+def encrypt_openssl(data: bytes, passphrase: str) -> bytes:
+    from cryptography.hazmat.primitives import hashes, padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    salt = os.urandom(8)
+    kiv = PBKDF2HMAC(hashes.SHA256(), 48, salt, OPENSSL_ITER).derive(passphrase.encode())
+    pad = padding.PKCS7(128).padder()
+    enc = Cipher(algorithms.AES(kiv[:32]), modes.CBC(kiv[32:])).encryptor()
+    return b"Salted__" + salt + enc.update(pad.update(data) + pad.finalize()) + enc.finalize()
+
+
+def decrypt_openssl(blob: bytes, passphrase: str) -> bytes:
+    from cryptography.hazmat.primitives import hashes, padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    salt = blob[8:16]
+    kiv = PBKDF2HMAC(hashes.SHA256(), 48, salt, OPENSSL_ITER).derive(passphrase.encode())
+    dec = Cipher(algorithms.AES(kiv[:32]), modes.CBC(kiv[32:])).decryptor()
+    try:
+        unpad = padding.PKCS7(128).unpadder()
+        data = unpad.update(dec.update(blob[16:]) + dec.finalize()) + unpad.finalize()
+    except ValueError as e:
+        raise BackupError(t("Wrong password or the file is damaged.")) from e
+    if data[:2] != b"\x1f\x8b":
+        raise BackupError(t("Wrong password or the file is damaged."))
+    return data
 
 
 # ---- архивы ----
@@ -120,6 +156,104 @@ def portal_archive(db_path, data_dir, awg) -> bytes:
     return buf.getvalue()
 
 
+SOURCE_SKIP = ("data/", "caddy/", ".git/", ".venv/", "samples/", "docs/", "tools/", "secrets/")
+
+
+def full_archive(db_path, data_dir, awg, host_dir: str = HOST_DIR) -> bytes:
+    """Полный бэкап: всё, чтобы install.sh поднял сервер с нуля — исходники и скрипты панели, база, data.key, .env,
+    файлы AmneziaWG, Dockerfile и start.sh контейнера, его параметры, контрольные суммы. Корень архива — awg-full/."""
+    import hashlib as _h
+    import json as _json
+    now = int(time.time())
+    files: dict[str, tuple[bytes, int]] = {}
+
+    def put(name: str, data: bytes, mode: int = 0o600) -> None:
+        files[name] = (data, mode)
+
+    # исходники и скрипты панели — из каталога установки (без данных и сертификатов)
+    if os.path.isdir(host_dir):
+        for root, dirs, names in os.walk(host_dir):
+            rel = os.path.relpath(root, host_dir)
+            rel = "" if rel == "." else rel + "/"
+            dirs[:] = [d for d in dirs if not (rel + d + "/").startswith(SOURCE_SKIP) and d not in ("__pycache__", ".pytest_cache")]
+            for n in names:
+                if (rel + n).startswith(SOURCE_SKIP) or n == ".env" or n.endswith((".pyc", ".awgbak", ".enc")):
+                    continue
+                path = os.path.join(root, n)
+                with open(path, "rb") as f:
+                    put(f"panel/{rel}{n}", f.read(), 0o755 if os.access(path, os.X_OK) else 0o644)
+    # данные панели
+    with tempfile.TemporaryDirectory(dir=data_dir) as tmp:
+        snap = os.path.join(tmp, "panel.db")
+        src, dst = sqlite3.connect(db_path), sqlite3.connect(snap)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
+        with open(snap, "rb") as f:
+            put("panel-data/panel.db", f.read())
+    for name, src_path in (("data.key", os.path.join(data_dir, "data.key")), ("panel.env", ENV_FILE)):
+        if os.path.exists(src_path):
+            with open(src_path, "rb") as f:
+                put(f"panel-data/{name}", f.read())
+    # AmneziaWG: файлы, start.sh из контейнера, Dockerfile с хоста, параметры запуска
+    meta = {"created": now, "created_text": fmt.dt(now, "%Y-%m-%d %H:%M"), "awg": None}
+    try:
+        from . import __version__
+        meta["panel_version"] = __version__
+    except ImportError:
+        pass
+    env_vals = {}
+    if "panel-data/panel.env" in files:
+        for line in files["panel-data/panel.env"][0].decode(errors="replace").splitlines():
+            if "=" in line and not line.lstrip().startswith("#"):
+                k, v = line.split("=", 1)
+                env_vals[k.strip()] = v.strip()
+    meta["panel_host"] = env_vals.get("PANEL_HOST", "")
+    meta["panel_port"] = env_vals.get("PANEL_PORT", "14443") or "14443"
+    try:
+        folder = awg.path("awg0.conf").parent if awg is not None else None
+    except Exception as e:  # noqa: BLE001 — AmneziaWG недоступен: бэкап панели всё равно ценен, install.sh пропустит шаг
+        folder, meta["awg_error"] = None, str(e)[:200]
+    if folder is not None:
+        for p in sorted(folder.iterdir()):
+            if p.is_file() and not p.name.startswith("."):
+                put(f"amnezia/awg/{p.name}", p.read_bytes())
+        start = folder.parent / "start.sh"
+        if start.exists():
+            put("amnezia/start.sh", start.read_bytes(), 0o755)
+        port, subnet = "", ""
+        for line in (folder / "awg0.conf").read_text().splitlines():
+            if line.split("=")[0].strip() == "ListenPort":
+                port = line.split("=", 1)[1].strip()
+        try:   # сеть контейнера (amnezia-dns-net): адрес eth0 внутри контейнера
+            out = awg.run(["ip", "-4", "-o", "addr", "show", "eth0"], mount=False)
+            import ipaddress as _ip
+            subnet = str(_ip.ip_interface(out.split()[3]).network)
+        except Exception:  # noqa: BLE001 — без подсети install.sh возьмёт её по умолчанию
+            subnet = ""
+        name = "amnezia-awg2"
+        for df in sorted(glob.glob(os.path.join(HOST_ROOT, "opt/amnezia/*/Dockerfile"))):
+            name = os.path.basename(os.path.dirname(df))
+            with open(df, "rb") as f:
+                put("amnezia/Dockerfile", f.read(), 0o644)
+            break
+        meta["awg"] = {"container": name, "port": port, "network": "amnezia-dns-net", "subnet": subnet}
+    put("meta.json", _json.dumps(meta, ensure_ascii=False, indent=2).encode(), 0o644)
+    for kit in ("install.sh", "RESTORE.txt"):
+        with open(os.path.join(KIT, kit), "rb") as f:
+            put(kit, f.read(), 0o755 if kit.endswith(".sh") else 0o644)
+    put("SHA256SUMS", "".join(f"{_h.sha256(d).hexdigest()}  {n}\n" for n, (d, _) in sorted(files.items())).encode(), 0o644)
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz", compresslevel=6) as tar:
+        for n, (data, mode) in sorted(files.items()):
+            info = tarfile.TarInfo(f"awg-full/{n}")
+            info.size, info.mtime, info.mode = len(data), now, mode
+            tar.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
 def group_archive(conn: sqlite3.Connection, group_ids: set[int], config_for) -> bytes:
     """zip: clients.csv и конфиги клиентов групп (у кого ключ есть у панели)."""
     peers = conn.execute(
@@ -153,16 +287,25 @@ def group_archive(conn: sqlite3.Connection, group_ids: set[int], config_for) -> 
 PARTS = ("db", "awg", "env")
 
 
+FULL_MAP = {"awg-full/panel-data/panel.db": "panel.db", "awg-full/panel-data/data.key": "data.key",
+            "awg-full/panel-data/panel.env": "panel.env"}
+
+
 def read_archive(blob: bytes, passphrase: str) -> dict[str, bytes]:
-    """Расшифровать бэкап портала и вернуть его файлы; бэкап группы (zip) восстанавливать нечем — это конфиги."""
-    data = decrypt(blob, passphrase)
+    """Расшифровать бэкап портала (полный или прежний) и вернуть его файлы под единые имена: panel.db, data.key,
+    panel.env, amnezia-awg/*. Бэкап группы (zip) восстанавливать нечем — это конфиги."""
+    data = decrypt_openssl(blob, passphrase) if blob.startswith(b"Salted__") else decrypt(blob, passphrase)
     if data[:2] != b"\x1f\x8b":
         raise BackupError(t("This is a group backup: it holds client configs, there is nothing to restore on the server."))
     out: dict[str, bytes] = {}
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
         for m in tar.getmembers():
             if m.isfile() and ".." not in m.name and not m.name.startswith("/"):
-                out[m.name] = tar.extractfile(m).read()
+                name = m.name
+                if name.startswith("awg-full/"):
+                    name = FULL_MAP.get(name) or ("amnezia-awg/" + name[len("awg-full/amnezia/awg/"):]
+                                                  if name.startswith("awg-full/amnezia/awg/") else name)
+                out[name] = tar.extractfile(m).read()
     if "panel.db" not in out or not out["panel.db"].startswith(SQLITE_HEADER):
         raise BackupError(t("The backup has no panel database."))
     return out
@@ -300,7 +443,7 @@ class Backups:
     def build(self, admin: sqlite3.Row, now: int) -> tuple[str, bytes]:
         stamp = fmt.dt(now, "%Y%m%d-%H%M")
         if admin["role"] == "super":
-            return f"awg-portal-{stamp}.awgbak", portal_archive(self.s.db_path, str(self.s.data_dir), self.awg)
+            return f"awg-full-{stamp}.tar.gz.enc", full_archive(self.s.db_path, str(self.s.data_dir), self.awg)
         gids = groups.admin_group_ids(self.conn, admin["id"])
         if not gids:
             raise BackupError(t("No groups: sees nothing"))
@@ -317,7 +460,8 @@ class Backups:
                 if not j["pass_enc"]:
                     raise BackupError(t("Set an archive password: backups are always encrypted."))
                 name, raw = self.build(admin, now)
-                blob = encrypt(raw, self.fernet.decrypt(j["pass_enc"].encode()).decode())
+                password = self.fernet.decrypt(j["pass_enc"].encode()).decode()
+                blob = encrypt_openssl(raw, password) if name.endswith(".enc") else encrypt(raw, password)
                 size = len(blob)
                 if size > LIMIT:
                     raise BackupError(t("The backup is too large to send ({size}).", size=fmt.size(size)))

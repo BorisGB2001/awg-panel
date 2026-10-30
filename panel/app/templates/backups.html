@@ -4,11 +4,13 @@
 <section class="card">
   <h1>{{ _("Backups") }}</h1>
   {% if admin.role == "super" %}
-  <p>{{ _("Your backup is the whole portal: the panel database, its settings (.env: administrator password and TOTP, keys, bot token, mail), the key that encrypts client private keys (data.key) and the AmneziaWG files (awg0.conf, clientsTable, server keys). It is enough to set up a new server and continue working.") }}</p>
+  <p>{{ _("Your backup is the full server: the panel code and scripts, its settings (.env), the database with all statistics, administrators, groups and client keys, and AmneziaWG — server keys, all clients, the container recipe. Inside is install.sh: on a clean server it installs Docker, builds a fresh AmneziaWG container, restores the VPN and the panel and opens the ports, asking before each step.") }}</p>
+  <pre class="conf">openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -md sha256 -in awg-full-….tar.gz.enc | tar xz
+cd awg-full &amp;&amp; ./install.sh</pre>
   {% else %}
   <p>{{ _("Your backup covers your groups ({groups}): the client list (CSV) and the .conf configs of the clients.", groups=my_groups|join(", ") or "—") }}</p>
   {% endif %}
-  <p class="muted small">{{ _("The file is always encrypted with your backup password (AES-256): it contains private keys. Keep the password: without it the backup cannot be opened. Decrypt with: docker compose exec panel python -m app.backup decrypt <file>") }}</p>
+  <p class="muted small">{{ _("The file is always encrypted with your backup password (AES-256): it contains private keys. Keep the password: without it the backup cannot be opened.") }}</p>
 </section>
 
 <section class="card">
@@ -45,6 +47,7 @@
   <form method="post" action="/backups/run" class="row-form">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <button type="submit" class="secondary">{{ _("Make a backup now") }}</button>
+    <button type="submit" class="secondary" formaction="/backups/download">{{ _("Download the backup") }}</button>
     {% if job.last_ts %}<span class="small {{ '' if job.last_ok else 'error' }}">{{ _("Last: {when} — {status}", when=job.last_ts|dt, status=job.last_status) }}{% if job.last_size %}, {{ job.last_size|size }}{% endif %}</span>{% endif %}
   </form>
 </section>
@@ -52,10 +55,10 @@
 {% if admin.role == "super" %}
 <section class="card" id="restore">
   <h1>{{ _("Restore from a backup") }}</h1>
-  <p class="muted small">{{ _("On this server: choose the .awgbak file of a portal backup and its password. The AmneziaWG files are applied at once without restarting AmneziaWG; the database is put in place and the panel restarts. The current state is saved to data/backups first. To move to a new server use restore.sh (README, “Restore from a backup”).") }}</p>
+  <p class="muted small">{{ _("On this server: choose a backup file (.tar.gz.enc or the older .awgbak) and its password. The AmneziaWG files are applied at once without restarting AmneziaWG; the database is put in place and the panel restarts. The current state is saved to data/backups first. To move to a new server, unpack the full backup there and run install.sh.") }}</p>
   <form method="post" action="/backups/restore" enctype="multipart/form-data" class="prefs" autocomplete="off">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>{{ _("Backup file (.awgbak)") }} <input type="file" name="file" accept=".awgbak" required></label>
+    <label>{{ _("Backup file") }} <input type="file" name="file" accept=".enc,.awgbak" required></label>
     <label>{{ _("Archive password") }} <input type="password" name="password" required autocomplete="off"></label>
     <label class="check"><input type="checkbox" name="part_db" value="1" checked> {{ _("Panel database: clients, history, groups, administrators, settings") }}</label>
     <label class="check"><input type="checkbox" name="part_awg" value="1" checked> {{ _("AmneziaWG files: awg0.conf, clientsTable, server keys") }}</label>

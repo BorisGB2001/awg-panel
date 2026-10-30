@@ -40,7 +40,7 @@ EVENT_NAMES = {
     "group_member": N_("moved to a group"), "acct_groups": N_("administrator groups changed"),
     "acct_telegram": N_("administrator connected Telegram"),
     "alert_quota": N_("traffic quota"), "quota_set": N_("quota changed"),
-    "contacts_set": N_("contacts changed"), "backup_sent": N_("backup sent"), "ip_allow_add": N_("panel access allowed from"),
+    "contacts_set": N_("contacts changed"), "backup_sent": N_("backup sent"), "backup_downloaded": N_("backup downloaded"), "ip_allow_add": N_("panel access allowed from"),
     "ip_allow_remove": N_("panel access removed for"), "ip_allow_clear": N_("panel IP restriction removed"), "backup_restored": N_("restored from a backup"), "alert_backup": N_("backup failed"), "admin_rekey": N_("new keys issued"), "config_sent": N_("config sent"), "config_link_issued": N_("bot link for the config created"),
     "client_view": N_("client portal opened"), "contact_telegram": N_("Telegram connected"), "contact_email": N_("e-mail confirmed"),
 }
@@ -127,6 +127,8 @@ def event_text(kind: str, detail: str | None) -> str:
         return f"{name}: {d.get('from')} → {d.get('to')} {flag(d.get('country'))} {d.get('org') or ''}".strip()
     if kind in ("ip_allow_add", "ip_allow_remove"):
         return f"{name} {d.get('cidr')}" + (f" ({d['note']})" if d.get("note") else "")
+    if kind == "backup_downloaded":
+        return f"{name}: {d.get('username')} — {d.get('file')}"
     if kind in ("backup_sent", "alert_backup"):
         return f"{name}: {d.get('username')} — {d.get('status')}"
     if kind == "config_sent":

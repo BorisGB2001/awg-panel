@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.9.0 — 2026-10-30
+
+- Full backup for super administrators (`awg-full-….tar.gz.enc`): panel code and scripts, `.env`, the database with all
+  statistics, `data.key`, AmneziaWG server keys and clients, the container's `Dockerfile` and `start.sh`, checksums —
+  and `install.sh` that rebuilds the server from scratch: Docker → a fresh AmneziaWG container from the latest
+  `amneziavpn/amneziawg-go` image with the restored keys and clients → the panel → ufw ports, asking before each step
+  (`--yes` for no questions, `--ip` for a new address, `--no-…` to skip steps).
+- The full backup is encrypted in the `openssl enc` format (AES-256-CBC, PBKDF2 600 000 iterations): a clean server
+  needs only `openssl` and `tar` to unpack it. Group backups stay `.awgbak`.
+- "Download the backup" button on the Backups page; the restore form accepts both formats.
+- docker-compose mounts the install directory read-only into the panel (it goes into the full backup).
+
 ## 1.8.3 — 2026-10-30
 
 - Fix: "Connect Telegram" buttons (My account, client portal) did nothing — the CSP `form-action 'self'` blocked the

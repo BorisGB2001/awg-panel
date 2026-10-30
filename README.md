@@ -121,18 +121,22 @@ ssh root@<server> /opt/awg-panel/ip-allow.sh clear                       # remov
 
 Every administrator sets up their own backup on the **Backups** page: daily or weekly at a chosen hour, plus "Make a backup now"; delivery to Telegram (the chat connected on "My account"), e-mail or both.
 
-- **Super administrator — the whole portal:** panel database, `.env` (admin password and TOTP, keys, bot token, mail), `data.key` and the AmneziaWG files (`awg0.conf`, `clientsTable`, server keys, PSK). Enough to set up a new server.
+- **Super administrator — the full server** (`awg-full-….tar.gz.enc`): panel code and scripts, `.env`, the database with all statistics, `data.key`, and AmneziaWG — server keys, all clients, the container's `Dockerfile` and `start.sh`. Inside is `install.sh` that rebuilds the server from scratch.
 - **Group administrator — their groups:** `clients.csv` and the `.conf` configs of the clients.
-- The file (`.awgbak`) is **always encrypted** with the administrator's backup password (AES-256-GCM, key from the password via scrypt). Keep the password: without it the backup cannot be opened. Decrypt by hand: `docker compose exec panel python -m app.backup decrypt <file>` (asks for the password).
+- Files are **always encrypted** with the administrator's backup password. The full backup uses the `openssl enc` format (AES-256-CBC, PBKDF2 600 000 iterations), so a clean server needs only `openssl` and `tar`; group backups (`.awgbak`) use AES-256-GCM. Keep the password: without it the backup cannot be opened. "Download the backup" gives the same file in the browser.
 
 **Restore on the same server:** Backups page → "Restore from a backup" (super administrators): the AmneziaWG files are applied at once without restarting AmneziaWG, the database is put in place and the panel restarts. The previous state is saved to `data/backups/<time>-pre-restore/`.
 
-**Move to a new server:**
+**Move to a new server (or rebuild this one) from the full backup** — Debian/Ubuntu, as root:
 
-1. Install AmneziaWG on the new server with the AmneziaVPN app (same protocol, **same port** as before — the port comes from the restored `awg0.conf`).
-2. Deploy the panel: `./deploy.sh root@<new-server>` (see Installation; no need to run `init-admin.sh`).
-3. Copy the backup and restore: `scp awg-portal-….awgbak root@<new-server>:/opt/awg-panel/` and on the server `cd /opt/awg-panel && ./restore.sh awg-portal-….awgbak [<new-public-ip>]`. It asks for the backup password, puts back `.env`, the database, `data.key` and the AmneziaWG files, applies them and starts the panel.
-4. Open the ports (`ufw allow <vpn-port>/udp`, `14443/tcp`, `80/tcp`).
+```bash
+scp awg-full-….tar.gz.enc root@<new-server>:/root/
+ssh root@<new-server>
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -md sha256 -in awg-full-….tar.gz.enc | tar xz   # asks the backup password
+cd awg-full && ./install.sh
+```
+
+`install.sh` checks the checksums and asks before each step: installs Docker if missing → builds a fresh AmneziaWG container from the latest `amneziavpn/amneziawg-go` image and puts back the server keys and all clients → restores the panel (code, `.env`, database with statistics, administrators, client keys) → opens the ports in ufw. Anything already on the server is kept aside with a `.before-restore-<time>` suffix. Non-interactive: `./install.sh --yes [--ip <public IP>]`; skip steps with `--no-docker --no-awg --no-panel --no-firewall`. Older `.awgbak` portal backups are restored with `restore.sh` (needs AmneziaWG and the panel installed first).
 
 If the server keeps its IP address, clients keep working with their old configs. With a new IP, pass it to `restore.sh`: the panel then issues configs with the new address — send them to the clients from the client cards (Telegram or e-mail).
 

@@ -1098,6 +1098,28 @@ async def backups_restore(request: Request):
     return RedirectResponse("/backups", status_code=303)
 
 
+@app.post("/backups/download")
+def backups_download(request: Request, csrf: str = Form("")):
+    """Скачать свой бэкап прямо из браузера (тот же зашифрованный файл, что уходит в Telegram и на почту)."""
+    check_csrf(request, csrf)
+    row = current_admin(request)
+    j = backup.job(request.app.state.db, row["id"])
+    if not j["pass_enc"]:
+        flash(request, t("Set an archive password: backups are always encrypted."), "error")
+        return RedirectResponse("/backups", status_code=303)
+    try:
+        name, raw = backups(request).build(row, int(time.time()))
+    except backup.BackupError as e:
+        flash(request, str(e), "error")
+        return RedirectResponse("/backups", status_code=303)
+    password = load_fernet(settings).decrypt(j["pass_enc"].encode()).decode()
+    blob = backup.encrypt_openssl(raw, password) if name.endswith(".enc") else backup.encrypt(raw, password)
+    db.event(request.app.state.db, "backup_downloaded", None, {"username": row["username"], "file": name},
+             row["username"], client_ip(request))
+    return Response(blob, media_type="application/octet-stream",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
+
+
 @app.post("/backups/run")
 def backups_run(request: Request, csrf: str = Form("")):
     check_csrf(request, csrf)

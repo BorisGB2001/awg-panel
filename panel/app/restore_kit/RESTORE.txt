@@ -1,0 +1,17 @@
+AWG Panel — full backup
+
+Restore on a new (or the same) server, Debian/Ubuntu, as root:
+
+  1. Copy the file to the server:        scp awg-full-….tar.gz.enc root@<server>:/root/
+  2. Decrypt and unpack (asks the backup password):
+       cd /root && openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -md sha256 -in awg-full-….tar.gz.enc | tar xz
+  3. Run the installer:                   cd awg-full && ./install.sh
+     It asks before each step: Docker → AmneziaWG (latest amneziawg-go image, keys and clients from the backup)
+     → panel (code, settings, database with statistics) → firewall.
+     Non-interactive: ./install.sh --yes [--ip <public IP>]   Skip steps: --no-docker --no-awg --no-panel --no-firewall
+
+If the server keeps its IP address, clients keep working with their old configs. With a new IP the panel issues
+configs with the new address — send them to the clients from the client cards.
+
+Contents: panel/ (code and scripts), panel-data/ (panel.db, data.key, panel.env = .env), amnezia/ (Dockerfile,
+start.sh, awg/ — awg0.conf, clientsTable, server keys), meta.json, SHA256SUMS.
