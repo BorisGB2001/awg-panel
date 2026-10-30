@@ -29,7 +29,8 @@ https://{$PANEL_HOST}:{$PANEL_PORT:14443} {
 		X-Content-Type-Options "nosniff"
 		# boris.gb 2026-10-28 22:27 - was no-referrer: browsers then sent the login form with "Origin: null" and login failed
 		Referrer-Policy "same-origin"
-		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; form-action 'self'"
+		# boris.gb 2026-10-30 01:08 - form-action + https://t.me: "Connect Telegram" forms redirect to the bot; 'self' alone blocked them
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; form-action 'self' https://t.me"
 		-Server
 	}
 }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.3 — 2026-10-30
+
+- Fix: "Connect Telegram" buttons (My account, client portal) did nothing — the CSP `form-action 'self'` blocked the
+  redirect to the bot. `https://t.me` is now allowed in `form-action`.
+
 ## 1.8.2 — 2026-10-30
 
 - No permanent listener on port 80: the HTTP→HTTPS redirect is off, Caddy opens :80 only for a few seconds while
