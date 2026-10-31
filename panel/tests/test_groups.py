@@ -58,6 +58,9 @@ def test_group_admin_sees_only_own_clients(client, world):
     assert "Вера" not in csv and "Глеб" not in csv
     gp = client.get("/groups").text
     assert ">A<" in gp and ">B<" not in gp and "no group" not in gp
+    assert "by group" in page
+    bars = page.split("by group")[-1].split("</section>")[0] if "by group" in page else ""
+    assert 'href="/?group=%d"' % ga in bars and 'href="/?group=%d"' % gb not in bars    # трафик групп — только свои
     bl = client.get("/blocks").text
     assert "blocked1.example" in bl and "blocked3.example" not in bl and "global.example" in bl
 

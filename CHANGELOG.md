@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.0 — 2026-10-31
+
+- Overview: "Traffic this month by group" — the same download/upload bars as the top 10; hovering a group shows its
+  traffic by day. Shown without a group filter; group administrators see only their groups.
+- Groups page: the monthly chart by group uses these bars too.
+
 ## 1.9.2 — 2026-10-31
 
 - Top 10 by traffic: the download/upload bars are as tall as before 1.9.1 again (still stacked in one line).

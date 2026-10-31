@@ -657,5 +657,7 @@
   "by day, this month": "по дням за месяц",
   "by hour, today": "по часам за сегодня",
   "hover over a client for details": "наведите на клиента — подробнее",
-  "total": "всего"
+  "total": "всего",
+  "Traffic this month ({month}) by group": "Трафик за месяц ({month}) по группам",
+  "groups": "группы"
 }

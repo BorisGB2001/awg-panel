@@ -26,6 +26,10 @@
     <p class="muted small">{{ _("A month starts on the 1st at 00:00 Moscow time; totals of past months are in the archive.") }}</p></div>
 </section>
 
+{% if groups_month %}
+<section class="card"><div class="head"><h1>{{ _("Traffic this month ({month}) by group", month=month) }}</h1><a href="/groups">{{ _("groups") }} →</a></div>{{ groups_month|safe }}</section>
+{% endif %}
+
 <section class="card">
   <div class="head">
     <h1>{{ _("Clients") }}</h1>

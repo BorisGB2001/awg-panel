@@ -440,6 +440,7 @@ def index(request: Request, days: int = 1, group: str = ""):
             t("by day, this month") if daily else t("by hour, today"))
     return render(request, "index.html", clients=clients, online=online, rx24=totals[0], tx24=totals[1],
                   top_today=top10(fmt.day_start(now), False), top_month=top10(m_start, True), month=month,
+                  groups_month=group_month_bars(conn, group_rows(request), now) if not group else "",
                   events=events, poll=poller.status if poller else None, now=now, days=days, peak=peak, alerts=alerts,
                   top_clients=top_clients, group=group, group_list=group_choices(request),
                   traffic_chart=charts.bars(charts.traffic_series(conn, since, now, bucket, vp), fmt.TZ, label),
@@ -990,13 +991,35 @@ def group_rows(request: Request) -> list[dict]:
     return out
 
 
+def group_month_bars(conn, rows: list[dict], now: int) -> str:
+    """Трафик групп за месяц: скачано + отдано полосками, во всплывающей карточке — график группы по дням."""
+    rows = sorted((g for g in rows if g["d_month"] + g["u_month"]), key=lambda g: -(g["d_month"] + g["u_month"]))
+    if not rows:
+        return ""
+    m_start, _ = monthly.month_bounds(monthly.current_month(now, fmt.TZ), fmt.TZ)
+    per: dict[int, dict[int, list[int]]] = {g["id"]: {} for g in rows}
+    gw = ",".join("?" * len(per))
+    for x in conn.execute("SELECT p.group_id g, t.ts, t.tx, t.rx FROM traffic_hour t JOIN peers p ON p.id = t.peer_id "
+                          f"WHERE t.ts >= ? AND p.group_id IN ({gw})", (m_start, *per)):
+        a = per[x["g"]].setdefault(fmt.day_start(x["ts"]), [0, 0])
+        a[0] += x["tx"]
+        a[1] += x["rx"]
+    keys, k = [], m_start
+    while k <= now:
+        keys.append(fmt.day_start(k))
+        k += 86400
+    return charts.traffic_bars(
+        [{"name": g["name"], "down": g["d_month"], "up": g["u_month"], "href": f"/?group={g['id']}",
+          "series": [(fmt.dt(k, "%d"), *per[g["id"]].get(k, (0, 0))) for k in keys]} for g in rows],
+        t("by day, this month"))
+
+
 @app.get("/groups", response_class=HTMLResponse)
 def groups_page(request: Request):
     conn = request.app.state.db
     nogroup = conn.execute("SELECT COUNT(*) FROM peers WHERE group_id IS NULL AND deleted_at IS NULL").fetchone()[0]
     rows = group_rows(request)
-    chart = charts.hbars(sorted(((g["name"], g["d_month"] + g["u_month"], f"/?group={g['id']}") for g in rows
-                                 if g["d_month"] + g["u_month"]), key=lambda x: -x[1]))
+    chart = group_month_bars(conn, rows, int(time.time()))
     return render(request, "groups.html", rows=rows, nogroup=nogroup, chart=chart)
 
 
