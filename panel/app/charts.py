@@ -130,13 +130,13 @@ RANGES = {1: (600, "%H:%M"), 7: (6 * 3600, "%d.%m %H"), 30: (86400, "%d.%m")}
 
 
 def traffic_bars(rows: list[dict], period: str = "") -> str:
-    """Топ по трафику: тонкая полоска скачано (синяя) + отдано (оранжевая), мелкая подпись.
+    """Топ по трафику: полоска скачано (синяя) + отдано (оранжевая), мелкая подпись.
     rows = {name, down, up, href, series: [(подпись, скачано, отдано), …] | None}. Данные для всплывающей карточки
     (app.js) — в data-tip каждой строки: клиент крупно и его график за период."""
     if not rows:
         return f'<p class="muted small">{t("No data.")}</p>'
     top = max(r["down"] + r["up"] for r in rows) or 1
-    rh, w, left, right = 22, 520, 150, 150
+    rh, w, left, right = 24, 520, 150, 150
     lbl = {"down": t("downloaded"), "up": t("uploaded"), "total": t("total"), "period": period}
     out = [f'<svg class="hbars tbars" viewBox="0 0 {w} {len(rows) * rh + 4}" role="img" data-labels="{escape(json.dumps(lbl, ensure_ascii=False))}">']
     for i, r in enumerate(rows):
@@ -150,10 +150,10 @@ def traffic_bars(rows: list[dict], period: str = "") -> str:
                "series": [[lab, int(a), int(b)] for lab, a, b in (r.get("series") or [])]}
         out.append(f'<a href="{escape(r["href"])}" class="trow" data-tip="{escape(json.dumps(tip, ensure_ascii=False))}">'
                    f'<rect class="hit" x="0" y="{y}" width="{w}" height="{rh}"/>'
-                   f'<text class="axis lbl" x="{left - 8}" y="{y + 15}" text-anchor="end">{escape(name)}</text>'
-                   f'<rect class="s1" x="{left}" y="{y + 8}" width="{dw:.1f}" height="6" rx="1"/>'
-                   f'<rect class="s2" x="{left + dw:.1f}" y="{y + 8}" width="{uw:.1f}" height="6" rx="1"/>'
-                   f'<text class="axis val" x="{left + dw + uw + 6:.1f}" y="{y + 15}">↓{size(int(r["down"]))} ↑{size(int(r["up"]))}</text></a>')
+                   f'<text class="axis lbl" x="{left - 8}" y="{y + 16}" text-anchor="end">{escape(name)}</text>'
+                   f'<rect class="s1" x="{left}" y="{y + 4}" width="{dw:.1f}" height="{rh - 8}" rx="2"/>'
+                   f'<rect class="s2" x="{left + dw:.1f}" y="{y + 4}" width="{uw:.1f}" height="{rh - 8}" rx="2"/>'
+                   f'<text class="axis val" x="{left + dw + uw + 6:.1f}" y="{y + 16}">↓{size(int(r["down"]))} ↑{size(int(r["up"]))}</text></a>')
     out.append("</svg>")
     out.append(f'<div class="legend"><span class="sw s1"></span>{t("downloaded")} <span class="sw s2"></span>{t("uploaded")}'
                f' <span class="muted">· {t("hover over a client for details")}</span></div>')

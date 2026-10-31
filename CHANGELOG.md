@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.2 — 2026-10-31
+
+- Top 10 by traffic: the download/upload bars are as tall as before 1.9.1 again (still stacked in one line).
+
 ## 1.9.1 — 2026-10-31
 
 - Overview: "Traffic today / this month — top 10" instead of downloads only — ranked by total traffic, thin stacked
