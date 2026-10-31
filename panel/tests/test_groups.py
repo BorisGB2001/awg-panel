@@ -45,6 +45,7 @@ def test_group_admin_sees_only_own_clients(client, world):
     conn, ga, gb = world
     page = client.get("/").text
     assert "Анна" in page and "Борис" in page and "Вера" not in page and "Глеб" not in page
+    assert "Traffic today — top 10" in page and 'class="trow"' in page                  # топ — только свои
     assert "site1.example" in client.get("/hosts").text and "site3.example" not in client.get("/hosts").text
     assert "Вера" not in client.get("/hosts/site3.example").text
     ev = client.get("/events").text

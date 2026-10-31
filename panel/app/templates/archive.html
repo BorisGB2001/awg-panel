@@ -16,7 +16,7 @@
     {% for name, v in group_totals %}<tr><td>{{ name }}</td><td class="num">{{ v[2] }}</td><td class="num">{{ v[0]|size }}</td><td class="num">{{ v[1]|size }}</td></tr>{% endfor %}
   </table>
   {% endif %}
-  <h2>{{ _("Top 10 downloads") }}</h2>
+  <h2>{{ _("Top 10 by traffic") }}</h2>
   {{ chart|safe }}
   <div class="scroll">
   <table class="tbl">

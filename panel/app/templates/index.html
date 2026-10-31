@@ -21,8 +21,8 @@
 </section>
 
 <section class="grid2">
-  <div class="card"><h1>{{ _("Top 10 downloads today") }}</h1>{{ top_today|safe }}</div>
-  <div class="card"><div class="head"><h1>{{ _("Top 10 downloads this month ({month})", month=month) }}</h1><a href="/archive">{{ _("archive") }} →</a></div>{{ top_month|safe }}
+  <div class="card"><h1>{{ _("Traffic today — top 10") }}</h1>{{ top_today|safe }}</div>
+  <div class="card"><div class="head"><h1>{{ _("Traffic this month ({month}) — top 10", month=month) }}</h1><a href="/archive">{{ _("archive") }} →</a></div>{{ top_month|safe }}
     <p class="muted small">{{ _("A month starts on the 1st at 00:00 Moscow time; totals of past months are in the archive.") }}</p></div>
 </section>
 

@@ -415,12 +415,31 @@ def index(request: Request, days: int = 1, group: str = ""):
     month = monthly.current_month(now, fmt.TZ)
     m_start, _ = monthly.month_bounds(month, fmt.TZ)
 
-    def top10(start: int) -> str:
-        rows = conn.execute("SELECT p.id, p.name, SUM(t.tx) d FROM traffic_hour t JOIN peers p ON p.id = t.peer_id "
-                            f"WHERE t.ts >= ?{pw} GROUP BY p.id ORDER BY d DESC LIMIT 10", (start, *pa)).fetchall()
-        return charts.hbars([(r["name"], r["d"], f"/peer/{r['id']}") for r in rows if r["d"]])
+    def top10(start: int, daily: bool) -> str:
+        """Топ-10 по трафику (скачано + отдано) и график каждого: по часам за сегодня или по дням за месяц."""
+        rows = conn.execute("SELECT p.id, p.name, SUM(t.tx) d, SUM(t.rx) u FROM traffic_hour t JOIN peers p ON p.id = t.peer_id "
+                            f"WHERE t.ts >= ?{pw} GROUP BY p.id ORDER BY SUM(t.tx + t.rx) DESC LIMIT 10", (start, *pa)).fetchall()
+        rows = [r for r in rows if r["d"] or r["u"]]
+        per: dict[int, dict[int, list[int]]] = {r["id"]: {} for r in rows}
+        sw, sa = db.peer_filter(set(per), "peer_id")
+        for x in conn.execute(f"SELECT peer_id, ts, tx, rx FROM traffic_hour WHERE ts >= ?{sw}", (start, *sa)):
+            key = fmt.day_start(x["ts"]) if daily else x["ts"] - x["ts"] % 3600
+            a = per[x["peer_id"]].setdefault(key, [0, 0])
+            a[0] += x["tx"]
+            a[1] += x["rx"]
+        step = 86400 if daily else 3600
+        keys = []
+        k = start
+        while k <= now:
+            keys.append(fmt.day_start(k) if daily else k)
+            k += step
+        label = "%d" if daily else "%H"
+        return charts.traffic_bars(
+            [{"name": r["name"], "down": r["d"] or 0, "up": r["u"] or 0, "href": f"/peer/{r['id']}",
+              "series": [(fmt.dt(k, label), *per[r["id"]].get(k, (0, 0))) for k in keys]} for r in rows],
+            t("by day, this month") if daily else t("by hour, today"))
     return render(request, "index.html", clients=clients, online=online, rx24=totals[0], tx24=totals[1],
-                  top_today=top10(fmt.day_start(now)), top_month=top10(m_start), month=month,
+                  top_today=top10(fmt.day_start(now), False), top_month=top10(m_start, True), month=month,
                   events=events, poll=poller.status if poller else None, now=now, days=days, peak=peak, alerts=alerts,
                   top_clients=top_clients, group=group, group_list=group_choices(request),
                   traffic_chart=charts.bars(charts.traffic_series(conn, since, now, bucket, vp), fmt.TZ, label),
@@ -1295,7 +1314,8 @@ def archive_page(request: Request, month: str = "", group: str = ""):
     month = month if month in months else (months[0] if months else "")
     pw, pa = db.peer_filter(visible_peers(request, group))
     rows = conn.execute(f"SELECT * FROM monthly_archive WHERE month = ?{pw} ORDER BY tx DESC", (month, *pa)).fetchall()
-    chart = charts.hbars([(r["name"] or r["ip"], r["tx"], f"/peer/{r['peer_id']}") for r in rows[:10] if r["tx"]])
+    chart = charts.traffic_bars([{"name": r["name"] or r["ip"], "down": r["tx"], "up": r["rx"], "href": f"/peer/{r['peer_id']}"}
+                                 for r in sorted(rows, key=lambda r: -(r["tx"] + r["rx"]))[:10] if r["tx"] or r["rx"]])
     gname = {g["id"]: g["name"] for g in group_choices(request)}
     member = {r[0]: r[1] for r in conn.execute("SELECT id, group_id FROM peers")}
     by_group: dict[str, list[int]] = {}

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.1 — 2026-10-31
+
+- Overview: "Traffic today / this month — top 10" instead of downloads only — ranked by total traffic, thin stacked
+  bars (blue — downloaded, orange — uploaded) with small labels. Hovering a client shows a card: downloaded and
+  uploaded in large type and the client's chart by hour (today) or by day (this month).
+- Monthly archive: the top 10 by traffic uses the same bars.
+
 ## 1.9.0 — 2026-10-30
 
 - Full backup for super administrators (`awg-full-….tar.gz.enc`): panel code and scripts, `.env`, the database with all

@@ -224,9 +224,6 @@
   "Too long for a single QR code": "Слишком длинно для одного QR-кода",
   "Too many attempts, try again later.": "Слишком много попыток, повторите позже.",
   "Too many attempts. Try again in {n} min.": "Слишком много попыток. Повторите через {n} мин.",
-  "Top 10 downloads": "Топ-10 по скачанному",
-  "Top 10 downloads this month ({month})": "Скачали за месяц ({month}) — топ-10",
-  "Top 10 downloads today": "Скачали сегодня — топ-10",
   "Top 10 sites": "Топ-10 сайтов",
   "Top users, 24 h": "Больше всех за 24 часа",
   "Total": "Всего",
@@ -653,5 +650,12 @@
   "On this server: choose a backup file (.tar.gz.enc or the older .awgbak) and its password. The AmneziaWG files are applied at once without restarting AmneziaWG; the database is put in place and the panel restarts. The current state is saved to data/backups first. To move to a new server, unpack the full backup there and run install.sh.": "На этом сервере: выберите файл бэкапа (.tar.gz.enc или прежний .awgbak) и его пароль. Файлы AmneziaWG применяются сразу, без перезапуска AmneziaWG; база ставится на место, и панель перезапускается. Текущее состояние сначала сохраняется в data/backups. Для переезда на новый сервер распакуйте там полный бэкап и запустите install.sh.",
   "The file is always encrypted with your backup password (AES-256): it contains private keys. Keep the password: without it the backup cannot be opened.": "Файл всегда шифруется вашим паролем бэкапа (AES-256): в нём приватные ключи. Сохраните пароль: без него бэкап не открыть.",
   "Your backup is the full server: the panel code and scripts, its settings (.env), the database with all statistics, administrators, groups and client keys, and AmneziaWG — server keys, all clients, the container recipe. Inside is install.sh: on a clean server it installs Docker, builds a fresh AmneziaWG container, restores the VPN and the panel and opens the ports, asking before each step.": "Ваш бэкап — весь сервер: код и скрипты панели, её настройки (.env), база со всей статистикой, администраторами, группами и ключами клиентов, и AmneziaWG — ключи сервера, все клиенты, рецепт контейнера. Внутри install.sh: на чистом сервере он ставит Docker, собирает свежий контейнер AmneziaWG, восстанавливает VPN и панель и открывает порты, спрашивая перед каждым шагом.",
-  "backup downloaded": "бэкап скачан"
+  "backup downloaded": "бэкап скачан",
+  "Top 10 by traffic": "Топ-10 по трафику",
+  "Traffic this month ({month}) — top 10": "Трафик за месяц ({month}) — топ-10",
+  "Traffic today — top 10": "Трафик сегодня — топ-10",
+  "by day, this month": "по дням за месяц",
+  "by hour, today": "по часам за сегодня",
+  "hover over a client for details": "наведите на клиента — подробнее",
+  "total": "всего"
 }
