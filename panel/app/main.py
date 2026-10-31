@@ -146,8 +146,8 @@ def visible_peers(request: Request, group: str = "") -> set[int] | None:
     if allowed is None:
         if sel is None:
             return None
-        return groups.peers_without_group(conn) if sel == 0 else groups.peers_of(conn, {sel})
-    return groups.peers_of(conn, allowed if sel is None else allowed & {sel})
+        return groups.peers_without_group(conn) if sel == 0 else groups.peers_of(conn, groups.subtree(conn, {sel}))
+    return groups.peers_of(conn, allowed if sel is None else allowed & groups.subtree(conn, {sel}))
 
 
 def can_see_peer(request: Request, peer_id: int) -> bool:
@@ -159,6 +159,18 @@ def group_choices(request: Request) -> list:
     """Группы для фильтров и форм: все — супер-администратору, свои — администратору группы."""
     allowed = allowed_groups(request)
     return [g for g in groups.all_groups(request.app.state.db) if allowed is None or g["id"] in allowed]
+
+
+def manageable_groups(request: Request) -> set[int] | None:
+    """Группы, которые администратор может переименовать, перенести и удалить: None — все (супер-администратор);
+    администратору группы — подгруппы назначенных ему групп (сами назначенные группы меняет супер-администратор)."""
+    row = current_admin(request)
+    if row is None:
+        return set()
+    if row["role"] == "super":
+        return None
+    conn = request.app.state.db
+    return groups.admin_group_ids(conn, row["id"]) - groups.admin_direct_ids(conn, row["id"])
 
 
 PEER_PATH = re.compile(r"^/peer/(\d+)(?:/|$)")
@@ -551,7 +563,7 @@ def peer_page(request: Request, peer_id: int, days: int = 1):
                          "quota_blocked, private_key_enc IS NOT NULL AS has_key FROM peers WHERE id = ?", (peer_id,)).fetchone()
     pg = groups.get(conn, extra["group_id"]) if extra["group_id"] else None
     quota = quotas.status(conn, extra["quota_bytes"], extra["quota_period"], peer_id, now)
-    group_quota = quotas.status(conn, pg["quota_bytes"], pg["quota_period"], groups.peers_of(conn, {pg["id"]}), now) if pg else None
+    group_quota = quotas.status(conn, pg["quota_bytes"], pg["quota_period"], quotas.group_peers(conn, pg["id"]), now) if pg else None
     sessions = conn.execute("SELECT s.*, e.country, e.org FROM sessions s LEFT JOIN endpoints e "
                             "ON e.peer_id = s.peer_id AND e.ip = s.endpoint_ip WHERE s.peer_id = ? ORDER BY s.start DESC LIMIT 50",
                             (peer_id,)).fetchall()
@@ -972,23 +984,30 @@ def server_info(request: Request) -> dict:
 # ---- группы ----
 
 def group_rows(request: Request) -> list[dict]:
-    """Видимые группы с итогами: клиенты, онлайн, трафик сегодня и за месяц, администраторы."""
+    """Видимые группы деревом с итогами по поддереву (группа + подгруппы): клиенты, онлайн, трафик сегодня и за месяц,
+    квота; администраторы группы; editable — можно ли администратору менять группу."""
     conn = request.app.state.db
     now = int(time.time())
     m_start, _ = monthly.month_bounds(monthly.current_month(now, fmt.TZ), fmt.TZ)
     admins_by = groups.admins_of(conn)
     online_since = now - settings.online_window
+    manageable = manageable_groups(request)
     out = []
     for g in group_choices(request):
+        peers = quotas.group_peers(conn, g["id"])
+        pw, pa = db.peer_filter(peers, "peer_id")
         stat = conn.execute(
-            "SELECT COALESCE(SUM(CASE WHEN t.ts >= ? THEN t.tx END), 0) d_today, COALESCE(SUM(CASE WHEN t.ts >= ? THEN t.rx END), 0) "
-            "u_today, COALESCE(SUM(t.tx), 0) d_month, COALESCE(SUM(t.rx), 0) u_month FROM traffic_hour t "
-            "JOIN peers p ON p.id = t.peer_id WHERE p.group_id = ? AND t.ts >= ?",
-            (fmt.day_start(now), fmt.day_start(now), g["id"], m_start)).fetchone()
-        online = conn.execute("SELECT COUNT(*) FROM peers WHERE group_id = ? AND deleted_at IS NULL AND disabled = 0 "
-                              "AND last_handshake >= ?", (g["id"], online_since)).fetchone()[0]
-        quota = quotas.status(conn, g["quota_bytes"], g["quota_period"], groups.peers_of(conn, {g["id"]}), now)
-        out.append(dict(g) | dict(stat) | {"online": online, "admins": admins_by.get(g["id"], []), "quota": quota})
+            "SELECT COALESCE(SUM(CASE WHEN ts >= ? THEN tx END), 0) d_today, COALESCE(SUM(CASE WHEN ts >= ? THEN rx END), 0) "
+            f"u_today, COALESCE(SUM(tx), 0) d_month, COALESCE(SUM(rx), 0) u_month FROM traffic_hour WHERE ts >= ?{pw}",
+            (fmt.day_start(now), fmt.day_start(now), m_start, *pa)).fetchone()
+        iw, ia = db.peer_filter(peers, "id")
+        clients, online = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(disabled = 0 AND last_handshake >= ?), 0) FROM peers "
+            f"WHERE deleted_at IS NULL{iw}", (online_since, *ia)).fetchone()
+        quota = quotas.status(conn, g["quota_bytes"], g["quota_period"], peers, now)
+        out.append(g | dict(stat) | {"own": g["clients"], "clients": clients, "subs": len(groups.subtree(conn, {g["id"]})) - 1, "online": online, "peers": peers,
+                                     "admins": admins_by.get(g["id"], []), "quota": quota,
+                                     "editable": manageable is None or g["id"] in manageable})
     return out
 
 
@@ -1002,19 +1021,23 @@ def group_bars(conn, rows: list[dict], now: int, daily: bool) -> str:
     start = monthly.month_bounds(monthly.current_month(now, fmt.TZ), fmt.TZ)[0] if daily else fmt.day_start(now)
     bucket = (lambda ts: fmt.day_start(ts)) if daily else (lambda ts: ts - ts % 3600)
     per: dict[int, dict[int, list[int]]] = {g["id"]: {} for g in rows}
-    gw = ",".join("?" * len(per))
-    for x in conn.execute("SELECT p.group_id g, t.ts, t.tx, t.rx FROM traffic_hour t JOIN peers p ON p.id = t.peer_id "
-                          f"WHERE t.ts >= ? AND p.group_id IN ({gw})", (start, *per)):
-        a = per[x["g"]].setdefault(bucket(x["ts"]), [0, 0])
-        a[0] += x["tx"]
-        a[1] += x["rx"]
+    owners: dict[int, list[int]] = {}                  # клиент → группы, в чьё поддерево он входит
+    for g in rows:
+        for pid in g["peers"]:
+            owners.setdefault(pid, []).append(g["id"])
+    pw, pa = db.peer_filter(set(owners), "peer_id")
+    for x in conn.execute(f"SELECT peer_id, ts, tx, rx FROM traffic_hour WHERE ts >= ?{pw}", (start, *pa)):
+        for gid in owners[x["peer_id"]]:
+            a = per[gid].setdefault(bucket(x["ts"]), [0, 0])
+            a[0] += x["tx"]
+            a[1] += x["rx"]
     keys, k = [], start
     while k <= now:
         keys.append(bucket(k))
         k += 86400 if daily else 3600
     label = "%d" if daily else "%H"
     return charts.traffic_bars(
-        [{"name": g["name"], "down": g[d], "up": g[u], "href": f"/?group={g['id']}",
+        [{"name": g["path"], "down": g[d], "up": g[u], "href": f"/?group={g['id']}",
           "series": [(fmt.dt(k, label), *per[g["id"]].get(k, (0, 0))) for k in keys]} for g in rows],
         t("by day, this month") if daily else t("by hour, today"), t("hover over a group for details"))
 
@@ -1026,8 +1049,11 @@ def groups_page(request: Request, edit: int = 0, delete: int = 0):
     rows = group_rows(request)
     now = int(time.time())
     chart = (group_bars(conn, rows, now, False), group_bars(conn, rows, now, True)) if len(rows) > 1 else None
-    pick = (lambda gid: next((g for g in rows if g["id"] == gid), None)) if is_super(request) else (lambda gid: None)
-    return render(request, "groups.html", rows=rows, nogroup=nogroup, chart=chart, editing=pick(edit), deleting=pick(delete))
+    pick = lambda gid: next((g for g in rows if g["id"] == gid and g["editable"]), None)   # noqa: E731
+    editing = pick(edit)
+    parents = [g for g in rows if editing is None or g["id"] not in groups.subtree(conn, {editing["id"]})]
+    return render(request, "groups.html", rows=rows, nogroup=nogroup, chart=chart, editing=editing, deleting=pick(delete),
+                  parents=parents, can_add=is_super(request) or any(rows))
 
 
 @app.get("/groups.csv")
@@ -1039,15 +1065,20 @@ def groups_csv(request: Request):
                 t("quota used, %"), t("administrators")])
     for g in group_rows(request):
         q = g["quota"]
-        w.writerow(map(csv_cell, [g["name"], g["clients"], g["online"], g["d_today"], g["u_today"], g["d_month"], g["u_month"],
+        w.writerow(map(csv_cell, [g["path"], g["clients"], g["online"], g["d_today"], g["u_today"], g["d_month"], g["u_month"],
                                   q["limit"] if q else "", q["period"] if q else "", q["pct"] if q else "",
                                   ", ".join(g["admins"])]))
     return Response("\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="awg-groups.csv"', "Cache-Control": "no-store"})
 
 
-def group_action(request: Request, csrf: str, fn, ok: str, edit: int = 0) -> RedirectResponse:
-    require_super(request)
+def group_action(request: Request, csrf: str, fn, ok: str, edit: int = 0, group_id: int | None = None,
+                 scope: set[int] | None = None) -> RedirectResponse:
+    """Действие со страницей «Группы». group_id — группа, которую меняют (администратору группы — только подгруппы
+    его групп, scope — набор, в котором её ищут); без group_id — только супер-администратору."""
+    manageable = manageable_groups(request) if scope is None else scope
+    if manageable is not None and (group_id is None or group_id not in manageable):
+        raise HTTPException(403, t("Only a super administrator can do this."))
     check_csrf(request, csrf)
     try:
         fn(actor=current_user(request), actor_ip=client_ip(request))
@@ -1058,45 +1089,64 @@ def group_action(request: Request, csrf: str, fn, ok: str, edit: int = 0) -> Red
     return RedirectResponse("/groups", status_code=303)
 
 
+def parent_choice(request: Request, parent_id: str) -> int | None:
+    """Родитель из формы: пусто — верхний уровень (только супер-администратору); администратор группы вкладывает
+    подгруппы только в свои группы."""
+    pid = int(parent_id) if parent_id.isdigit() else None
+    allowed = allowed_groups(request)
+    if allowed is not None and pid not in allowed:
+        raise GroupError(t("Choose one of your groups."))
+    return pid
+
+
 @app.post("/groups/add")
-def groups_add(request: Request, name: str = Form(""), note: str = Form(""), csrf: str = Form("")):
-    return group_action(request, csrf, lambda **kw: groups.create(request.app.state.db, name, note, **kw),
-                        t("Group “{name}” created.", name=" ".join(name.split())))
+def groups_add(request: Request, name: str = Form(""), note: str = Form(""), parent_id: str = Form(""), csrf: str = Form("")):
+    conn = request.app.state.db
+    allowed = allowed_groups(request)                      # администратор группы — подгруппу только в своей группе
+    pid = int(parent_id) if parent_id.isdigit() else None
+    return group_action(request, csrf, lambda **kw: groups.create(conn, name, note, parent_choice(request, parent_id), **kw),
+                        t("Group “{name}” created.", name=" ".join(name.split())), group_id=pid if allowed is not None else None,
+                        scope=allowed)
 
 
 @app.post("/groups/{group_id}/update")
-def groups_update(request: Request, group_id: int, name: str = Form(""), note: str = Form(""), csrf: str = Form("")):
-    return group_action(request, csrf, lambda **kw: groups.update(request.app.state.db, group_id, name, note, **kw),
-                        t("Group saved."), group_id)
+def groups_update(request: Request, group_id: int, name: str = Form(""), note: str = Form(""), parent_id: str = Form(""),
+                  csrf: str = Form("")):
+    return group_action(request, csrf, lambda **kw: groups.update(request.app.state.db, group_id, name, note,
+                                                                  parent_choice(request, parent_id), **kw),
+                        t("Group saved."), group_id, group_id)
 
 
 @app.post("/groups/{group_id}/quota")
 def groups_quota(request: Request, group_id: int, gib: str = Form(""), period: str = Form("month"),
                  action: str = Form("alert"), csrf: str = Form("")):
+    require_super(request)
     return group_action(request, csrf, lambda **kw: quotas.set_group_quota(request.app.state.db, group_id, gib, period, action, **kw),
-                        t("Quota saved."), group_id)
+                        t("Quota saved."), group_id, group_id)
 
 
 @app.post("/groups/{group_id}/delete")
-def groups_delete(request: Request, group_id: int, with_clients: str = Form(""), confirm: str = Form(""),
-                  csrf: str = Form("")):
-    """Удалить только группу (клиенты остаются без группы) или группу вместе с клиентами — с вводом её названия."""
+def groups_delete(request: Request, group_id: int, with_clients: str = Form(""), with_subgroups: str = Form(""),
+                  confirm: str = Form(""), csrf: str = Form("")):
+    """Удалить группу. Подгруппы переходят к её родителю или удаляются вместе с ней; клиенты удалённых групп остаются
+    без группы или удаляются (тогда нужно ввести название группы)."""
     conn = request.app.state.db
-    if not with_clients:
-        return group_action(request, csrf, lambda **kw: groups.delete(conn, group_id, **kw),
-                            t("Group deleted; its clients now have no group."))
 
-    def both(**kw):
-        g = conn.execute("SELECT name FROM groups WHERE id = ?", (group_id,)).fetchone()
+    def run(**kw):
+        g = groups.get(conn, group_id)
         if g is None:
             raise GroupError(t("Group not found."))
-        if confirm.strip() != g["name"]:
-            raise GroupError(t("Type the group name to delete it with its clients."))
-        m = manager(request)
-        for p in conn.execute("SELECT id, name FROM peers WHERE group_id = ? AND deleted_at IS NULL", (group_id,)).fetchall():
-            m.delete(p["id"], p["name"], **kw)
-        groups.delete(conn, group_id, **kw)
-    return group_action(request, csrf, both, t("Group and its clients deleted. History is kept."))
+        gone = groups.subtree(conn, {group_id}) if with_subgroups else {group_id}
+        if with_clients:
+            if confirm.strip() != g["name"]:
+                raise GroupError(t("Type the group name to delete it with its clients."))
+            m = manager(request)
+            gw, ga = db.peer_filter(gone, "group_id")
+            for p in conn.execute(f"SELECT id, name FROM peers WHERE deleted_at IS NULL{gw}", ga).fetchall():
+                m.delete(p["id"], p["name"], **kw)
+        groups.delete(conn, group_id, bool(with_subgroups), **kw)
+    return group_action(request, csrf, run, t("Group and its clients deleted. History is kept.") if with_clients
+                        else t("Group deleted; its clients now have no group."), group_id=group_id)
 
 
 # ---- бэкапы ----
@@ -1256,7 +1306,7 @@ def admins_page(request: Request):
     return render(request, "admins.html", rows=admins.all_admins(conn), roles=admins.creatable_roles(),
                   ip_rows=ipallow.entries(conn), my_ip=client_ip(request),
                   group_list=groups.all_groups(conn),
-                  member={a["id"]: groups.admin_group_ids(conn, a["id"]) for a in admins.all_admins(conn)},
+                  member={a["id"]: groups.admin_direct_ids(conn, a["id"]) for a in admins.all_admins(conn)},
                   new_password=request.session.pop("new_password", None))
 
 

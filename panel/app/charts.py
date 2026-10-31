@@ -136,24 +136,25 @@ def traffic_bars(rows: list[dict], period: str = "", hint: str = "") -> str:
     if not rows:
         return f'<p class="muted small">{t("No data.")}</p>'
     top = max(r["down"] + r["up"] for r in rows) or 1
-    rh, w, left, right = 24, 520, 150, 150
+    # полоска от левого края, за ней ↓/↑, имя — по правому краю
+    rh, w, left, vals, names = 24, 520, 2, 116, 140
+    span = w - left - vals - names
     lbl = {"down": t("downloaded"), "up": t("uploaded"), "total": t("total"), "period": period}
     out = [f'<svg class="hbars tbars" viewBox="0 0 {w} {len(rows) * rh + 4}" role="img" data-labels="{escape(json.dumps(lbl, ensure_ascii=False))}">']
     for i, r in enumerate(rows):
         y = i * rh + 2
-        span = w - left - right
         dw = max(span * r["down"] / top, 0.5 if r["down"] else 0)
         uw = max(span * r["up"] / top, 0.5 if r["up"] else 0)
-        name = r["name"] if len(r["name"]) <= 22 else r["name"][:21] + "…"
+        name = r["name"] if len(r["name"]) <= 24 else "…" + r["name"][-23:]
         tip = {"name": r["name"], "down": size(int(r["down"])), "up": size(int(r["up"])), "total": size(int(r["down"] + r["up"])),
                "d": int(r["down"]), "u": int(r["up"]),
                "series": [[lab, int(a), int(b)] for lab, a, b in (r.get("series") or [])]}
         out.append(f'<a href="{escape(r["href"])}" class="trow" data-tip="{escape(json.dumps(tip, ensure_ascii=False))}">'
                    f'<rect class="hit" x="0" y="{y}" width="{w}" height="{rh}"/>'
-                   f'<text class="axis lbl" x="{left - 8}" y="{y + 16}" text-anchor="end">{escape(name)}</text>'
                    f'<rect class="s1" x="{left}" y="{y + 4}" width="{dw:.1f}" height="{rh - 8}" rx="2"/>'
                    f'<rect class="s2" x="{left + dw:.1f}" y="{y + 4}" width="{uw:.1f}" height="{rh - 8}" rx="2"/>'
-                   f'<text class="axis val" x="{left + dw + uw + 6:.1f}" y="{y + 16}">↓{size(int(r["down"]))} ↑{size(int(r["up"]))}</text></a>')
+                   f'<text class="axis val" x="{left + dw + uw + 6:.1f}" y="{y + 16}">↓{size(int(r["down"]))} ↑{size(int(r["up"]))}</text>'
+                   f'<text class="axis lbl" x="{w - 2}" y="{y + 16}" text-anchor="end">{escape(name)}</text></a>')
     out.append("</svg>")
     out.append(f'<div class="legend"><span class="sw s1"></span>{t("downloaded")} <span class="sw s2"></span>{t("uploaded")}'
                f' <span class="muted">· {hint or t("hover over a client for details")}</span></div>')

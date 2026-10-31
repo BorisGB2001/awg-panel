@@ -37,7 +37,7 @@ Demo data: the clients, addresses and traffic are fictional. Click a picture to 
 - **Notifications**: Telegram bot and e-mail, including a daily PNG report (today's chart and top-10 sites).
 - **Monthly archive**: statistics reset on the 1st at 00:00, the previous month is kept in the archive.
 - **Administrators**: super administrators and group administrators, each with a password and TOTP; a new administrator gets a temporary password and sets up the authenticator on first sign-in.
-- **Groups**: clients are organised in groups; a group administrator sees and manages only the clients of its groups. Per-group traffic today and this month.
+- **Groups**: clients are organised in groups, which can be nested (head organisation → branches → departments); a group administrator sees and manages only the clients of its groups and their subgroups. Per-group traffic today and this month, including subgroups.
 - **Quotas**: traffic limits per group or client per day or month, alerts at 80 % and 100 %, optionally disabling clients until the period ends.
 - **Themes**: light, dark or as in the system.
 - **Languages**: English by default, Russian included, any language can be added as a JSON file.

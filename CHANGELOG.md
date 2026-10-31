@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.12.0 — 2026-11-01
+
+- Subgroups: a group can be placed inside another one (head organisation → branches → departments, any depth).
+  The Groups page shows them as a tree; clients, online, traffic and the quota of a group include its subgroups
+  ("own: N" shows the group's own clients). The group filter on every page includes subgroups, and the group lists
+  are indented.
+- A group administrator sees the subgroups of their groups and can create, rename, move and delete them (the groups
+  assigned to them and quotas stay with super administrators).
+- Deleting a group asks about its subgroups (move to the parent group or delete them too) and about the clients of
+  the deleted groups (keep them without a group or delete them, typing the group name).
+- Traffic bars (top 10, groups, archive): the bar starts at the left edge, then downloaded/uploaded, and the client or
+  group name is aligned to the right.
+- Database schema 14 (`groups.parent_id`), applied automatically.
+
 ## 1.11.0 — 2026-11-01
 
 - Traffic by group, like the client top 10: "today" and "this month" side by side on the overview and the Groups

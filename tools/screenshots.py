@@ -71,10 +71,10 @@ CLIENTS = [  # имя, группа, онлайн, страна, город, п�
     ("Kids tablet", "Family", True, "DE", "Berlin", "Example Fiber AG"),
     ("Office laptop 01", "Office", True, "FI", "Helsinki", "Sample Networks Oy"),
     ("Office laptop 02", "Office", True, "FI", "Helsinki", "Sample Networks Oy"),
-    ("Office laptop 03", "Office", False, "FI", "Espoo", "Sample Networks Oy"),
+    ("Office laptop 03", "Sales", False, "FI", "Espoo", "Sample Networks Oy"),
     ("Reception PC", "Office", True, "FI", "Helsinki", "Sample Networks Oy"),
-    ("Sales phone", "Office", True, "SE", "Stockholm", "Example Mobil AB"),
-    ("Accounting", "Office", False, "FI", "Helsinki", "Sample Networks Oy"),
+    ("Sales phone", "Sales", True, "SE", "Stockholm", "Example Mobil AB"),
+    ("Accounting", "Accounting", False, "FI", "Helsinki", "Sample Networks Oy"),
     ("Guest Wi-Fi 1", "Guests", True, "GB", "London", "Demo Broadband Ltd"),
     ("Guest Wi-Fi 2", "Guests", False, "GB", "London", "Demo Broadband Ltd"),
     ("Contractor", "Guests", True, "US", "New York", "Example Cable Inc."),
@@ -96,6 +96,8 @@ def seed(conn, now: int, admin_pw_hash: str, fernet) -> None:
     rnd = random.Random(7)
     gid = {name: groups.create(conn, name, note) for name, note in
            (("Office", "Helsinki office"), ("Family", "home devices"), ("Guests", "temporary access"))}
+    for name, note, parent in (("Sales", "sales department", "Office"), ("Accounting", "", "Office")):   # подгруппы
+        gid[name] = groups.create(conn, name, note, gid[parent])
     created = now - 60 * 86400
     for i, (name, group, online, cc, city, org) in enumerate(CLIENTS, start=1):
         ip = f"10.8.1.{i + 1}"

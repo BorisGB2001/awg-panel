@@ -37,7 +37,7 @@ EVENT_NAMES = {
     "acct_reset": N_("administrator password reset"), "acct_role": N_("administrator role changed"),
     "acct_password": N_("administrator changed password"), "acct_totp_bound": N_("administrator set up the authenticator"),
     "group_created": N_("group created"), "group_renamed": N_("group renamed"), "group_deleted": N_("group deleted"),
-    "group_member": N_("moved to a group"), "acct_groups": N_("administrator groups changed"),
+    "group_member": N_("moved to a group"), "group_moved": N_("group moved"), "acct_groups": N_("administrator groups changed"),
     "acct_telegram": N_("administrator connected Telegram"),
     "alert_quota": N_("traffic quota"), "quota_set": N_("quota changed"),
     "contacts_set": N_("contacts changed"), "backup_sent": N_("backup sent"), "backup_downloaded": N_("backup downloaded"), "ip_allow_add": N_("panel access allowed from"),
@@ -137,6 +137,11 @@ def event_text(kind: str, detail: str | None) -> str:
         return f"{name}: {d.get('name')} ({d.get('ip')})"
     if kind.startswith("block_"):
         return f"{name}: {d.get('value')}" + (" " + t("(preset {name})", name=d["preset"]) if d.get("preset") else "")
+    if kind in ("group_created", "group_deleted"):
+        return f"{name}: «{d.get('group')}»" + (f" ⊂ «{d['parent']}»" if d.get("parent") else "") + \
+            (" + " + ", ".join(d["subgroups"]) if d.get("subgroups") else "")
+    if kind == "group_moved":
+        return f"{name}: «{d.get('group')}» → " + (f"«{d['parent']}»" if d.get("parent") else t("top level"))
     if kind in ("peer_renamed", "admin_rename"):
         return f"{name}: «{d.get('from')}» → «{d.get('to')}»"
     if kind == "month_archived":

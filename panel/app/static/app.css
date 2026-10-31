@@ -103,7 +103,7 @@ tr.alert td { background: var(--warn-bg); }
 .me-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .prefs { margin-top: 12px; }
 label.check { display: flex; gap: 8px; align-items: center; color: var(--text); font-size: 14px; flex-wrap: wrap; }
-label.check input[type=checkbox] { width: auto; margin: 0; }
+label.check input[type=checkbox], label.check input[type=radio] { width: auto; margin: 0; }
 label.check select { width: auto; display: inline-block; margin: 0; }
 .lang { display: flex; gap: 2px; font-size: 12px; }
 .lang a { padding: 2px 6px; border-radius: 4px; color: var(--muted); }
@@ -207,3 +207,14 @@ footer .gh { display: inline-flex; align-items: center; gap: 5px; }
 .icon-btn:hover { background: var(--bg); color: var(--accent); }
 .icon-btn.danger { background: none; }
 .icon-btn.danger:hover { color: var(--danger); }
+
+/* подгруппы: отступ по уровню вложенности; форма удаления группы */
+.tbl td.gname.depth1 { padding-left: 26px; }
+.tbl td.gname.depth2 { padding-left: 44px; }
+.tbl td.gname.depth3 { padding-left: 62px; }
+.tbl td.gname.depth4 { padding-left: 80px; }
+.del-form { display: grid; gap: 12px; justify-items: start; }
+.del-form fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px 10px; margin: 0; display: grid; gap: 6px; }
+.del-form legend { padding: 0 4px; font-weight: 600; }
+.del-form .check input[name="confirm"] { width: 220px; margin: 0; padding: 6px 10px; }
+.del-form p { margin: 0; }

@@ -227,6 +227,10 @@ MIGRATIONS: list[str] = [
         actor TEXT
     );
     """,
+    # 14: подгруппы — головная организация, филиалы, отделы; NULL — группа верхнего уровня
+    """
+    ALTER TABLE groups ADD COLUMN parent_id INTEGER REFERENCES groups(id);
+    """,
 ]
 
 

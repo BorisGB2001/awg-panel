@@ -49,7 +49,7 @@
         {% if group_list or admin.role != "super" %}
         <label>{{ _("Group") }} <select name="group_id"{% if admin.role != "super" %} required{% endif %}>
           {% if admin.role == "super" %}<option value="0">{{ _("no group") }}</option>{% endif %}
-          {% for g in group_list %}<option value="{{ g.id }}"{% if group == g.id|string %} selected{% endif %}>{{ g.name }}</option>{% endfor %}
+          {% for g in group_list %}<option value="{{ g.id }}"{% if group == g.id|string %} selected{% endif %}>{{ g.label }}</option>{% endfor %}
         </select></label>
         {% endif %}
         <button type="submit">{{ _("Add") }}</button>
