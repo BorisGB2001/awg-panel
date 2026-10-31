@@ -68,6 +68,15 @@ def size(n: int | None) -> str:
     return f"{n:.2f} {t('TiB')}"
 
 
+def tz_label() -> str:
+    """Часовой пояс панели для подписей — смещение от UTC сейчас: «UTC», «UTC+01:00»."""
+    off = datetime.datetime.now(TZ).utcoffset()
+    if not off:
+        return "UTC"
+    m = int(off.total_seconds()) // 60
+    return f"UTC{'+' if m > 0 else '-'}{abs(m) // 60:02d}:{abs(m) % 60:02d}"
+
+
 def dt(ts: int | None, fmt: str = "%d.%m %H:%M") -> str:
     return datetime.datetime.fromtimestamp(ts, TZ).strftime(fmt) if ts else "—"
 
@@ -180,8 +189,8 @@ def event_text(kind: str, detail: str | None) -> str:
     return name
 
 
-SECOND_LEVEL = {"co.uk", "com.ru", "org.ru", "net.ru", "com.ua", "co.jp", "com.au", "com.br", "com.tr", "msk.ru", "spb.ru",
-                "co.kr", "com.cn", "gov.ru", "com.kz", "co.il", "github.io", "cloudfront.net", "amazonaws.com", "appspot.com"}
+SECOND_LEVEL = {"co.uk", "com.ua", "co.jp", "com.au", "com.br", "com.tr",
+                "co.kr", "com.cn", "com.kz", "co.il", "github.io", "cloudfront.net", "amazonaws.com", "appspot.com"}
 
 
 def base_domain(name: str) -> str:
@@ -195,5 +204,5 @@ def base_domain(name: str) -> str:
 
 def register(env) -> None:
     env.filters.update(size=size, dt=dt, ago=ago, duration=duration, flag=flag, base_domain=base_domain)
-    env.globals.update(event_text=event_text, status_name=status_name, STATUS_KEYS=STATUS_KEYS, _=t, N_=N_, VERSION=__version__, ROLE_NAMES=ROLE_NAMES, WEEKDAYS=WEEKDAYS, GEO_DATE=lambda: None, PERIOD_NAMES=PERIOD_NAMES, ACTION_NAMES=ACTION_NAMES,
+    env.globals.update(TZ_LABEL=tz_label, event_text=event_text, status_name=status_name, STATUS_KEYS=STATUS_KEYS, _=t, N_=N_, VERSION=__version__, ROLE_NAMES=ROLE_NAMES, WEEKDAYS=WEEKDAYS, GEO_DATE=lambda: None, PERIOD_NAMES=PERIOD_NAMES, ACTION_NAMES=ACTION_NAMES,
                        languages=i18n.languages)

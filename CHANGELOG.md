@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.13.0 — 2026-11-01
+
+- Breadcrumbs with the group path: "All clients › Head office › Branch › client" on the client card and the config
+  page, so you can go to any parent group, not only to the overview. The overview filtered by a group shows the same
+  path and links to its subgroups.
+- Time zone captions show the panel's real time zone as an offset (for example "panel time (UTC+01:00)") instead of a
+  fixed city name; the default time zone is now UTC (`TZ` in `.env`).
+- Footer: the items are aligned on one line.
+- Screenshots: the client card and config show a client of a subgroup.
+
 ## 1.12.0 — 2026-11-01
 
 - Subgroups: a group can be placed inside another one (head organisation → branches → departments, any depth).

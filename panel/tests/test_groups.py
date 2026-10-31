@@ -126,18 +126,18 @@ def test_super_admin_group_filter_and_management(client):
         conn.execute("INSERT INTO peers (id, pubkey, name, ip) VALUES (?, ?, ?, ?)", (pid, f"k{pid}", name, f"10.8.1.{pid}"))
     _login(client)
     tok = _csrf(client.get("/groups").text)
-    client.post("/groups/add", data={"csrf": tok, "name": "  Офис   Москва ", "note": "n"})
+    client.post("/groups/add", data={"csrf": tok, "name": "  Головной   офис ", "note": "n"})
     g = conn.execute("SELECT * FROM groups").fetchone()
-    assert g["name"] == "Офис Москва"
-    assert "already exists" in client.post("/groups/add", data={"csrf": tok, "name": "офис москва"}).text
+    assert g["name"] == "Головной офис"
+    assert "already exists" in client.post("/groups/add", data={"csrf": tok, "name": "головной офис"}).text
     client.post("/peer/1/group", data={"csrf": tok, "group_id": str(g["id"])})
     page = client.get(f"/?group={g['id']}").text
     assert "Анна" in page and "Вера" not in page
-    assert re.search(r'Анна</a><div class="muted small">Офис Москва</div>', page)      # группа под именем
+    assert re.search(r'Анна</a><div class="muted small">Головной офис</div>', page)      # группа под именем
     page = client.get("/?group=0").text
     assert "Вера" in page and "Анна" not in page
     gp = client.get("/groups").text
-    assert "Офис Москва" in gp and f'href="/groups?edit={g["id"]}#edit"' in gp and f'href="/groups?delete={g["id"]}#edit"' in gp
+    assert "Головной офис" in gp and f'href="/groups?edit={g["id"]}#edit"' in gp and f'href="/groups?delete={g["id"]}#edit"' in gp
     assert 'id="edit"' not in gp and 'id="edit"' in client.get(f"/groups?edit={g['id']}").text
     assert 'name="with_clients"' in client.get(f"/groups?delete={g['id']}").text
     client.post(f"/groups/{g['id']}/delete", data={"csrf": tok})

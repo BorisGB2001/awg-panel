@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
+{% if crumbs %}<div class="crumbs-row">{% include "crumbs.html" %}{% if subgroups %}<nav class="crumbs subs" aria-label="{{ _("Subgroups") }}"><span class="muted">{{ _("Subgroups") }}:</span>{% for g in subgroups %}<a href="/?group={{ g.id }}">{{ g.name }}</a>{% endfor %}</nav>{% endif %}</div>{% endif %}
 <section class="kpis">
   <div class="card kpi"><div class="muted">{{ _("Online") }}</div><b>{{ online }}</b><span class="muted"> {{ _("of {n}", n=clients|length) }}</span></div>
   <div class="card kpi"><div class="muted">{{ _("Downloaded, 24 h") }}</div><b>{{ tx24|size }}</b></div>
@@ -23,7 +24,7 @@
 <section class="grid2">
   <div class="card"><h1>{{ _("Traffic today — top 10") }}</h1>{{ top_today|safe }}</div>
   <div class="card"><div class="head"><h1>{{ _("Traffic this month ({month}) — top 10", month=month) }}</h1><a href="/archive">{{ _("archive") }} →</a></div>{{ top_month|safe }}
-    <p class="muted small">{{ _("A month starts on the 1st at 00:00 Moscow time; totals of past months are in the archive.") }}</p></div>
+    <p class="muted small">{{ _("A month starts on the 1st at 00:00 panel time ({tz}); totals of past months are in the archive.", tz=TZ_LABEL()) }}</p></div>
 </section>
 
 {% if groups_bars %}

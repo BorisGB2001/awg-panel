@@ -176,7 +176,8 @@ footer { display: flex; flex-wrap: wrap; justify-content: center; align-items: c
          max-width: 1200px; margin: 8px auto 0; border-top: 1px solid var(--border); padding: 18px 16px 28px; }
 footer a { color: var(--muted); }
 footer a:hover { color: var(--text); }
-footer .gh { display: inline-flex; align-items: center; gap: 5px; }
+footer > span, footer .gh { display: inline-flex; align-items: center; gap: 5px; line-height: 20px; }
+footer svg { display: block; flex: none; }
 .tbars .hit { fill: transparent; }
 .tbars a:hover .hit { fill: var(--bg); }
 .tbars .lbl { fill: var(--text); font-size: 11px; }
@@ -218,3 +219,10 @@ footer .gh { display: inline-flex; align-items: center; gap: 5px; }
 .del-form legend { padding: 0 4px; font-weight: 600; }
 .del-form .check input[name="confirm"] { width: 220px; margin: 0; padding: 6px 10px; }
 .del-form p { margin: 0; }
+
+/* хлебные крошки: Все клиенты › Головная › Филиал › клиент */
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 14px; font-size: 14px; line-height: 20px; }
+.crumbs .sep { color: var(--muted); }
+.crumbs [aria-current] { color: var(--muted); }
+.crumbs-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 24px; }
+.crumbs.subs { gap: 4px 12px; }

@@ -161,6 +161,15 @@ def group_choices(request: Request) -> list:
     return [g for g in groups.all_groups(request.app.state.db) if allowed is None or g["id"] in allowed]
 
 
+def crumbs(request: Request, group_id: int | None, *tail: tuple[str, str | None]) -> list[tuple[str, str | None]]:
+    """Хлебные крошки: «Все клиенты › Головная › Филиал › …». Группы выше видимых администратору — без ссылки."""
+    allowed = allowed_groups(request)
+    out: list[tuple[str, str | None]] = [(t("All clients"), "/")]
+    for g in groups.chain(request.app.state.db, group_id):
+        out.append((g["name"], f"/?group={g['id']}" if allowed is None or g["id"] in allowed else None))
+    return out + list(tail)
+
+
 def manageable_groups(request: Request) -> set[int] | None:
     """Группы, которые администратор может переименовать, перенести и удалить: None — все (супер-администратор);
     администратору группы — подгруппы назначенных ему групп (сами назначенные группы меняет супер-администратор)."""
@@ -456,6 +465,8 @@ def index(request: Request, days: int = 1, group: str = ""):
                   groups_bars=(group_bars(conn, g_rows, now, False), group_bars(conn, g_rows, now, True)) if g_rows else None,
                   events=events, poll=poller.status if poller else None, now=now, days=days, peak=peak, alerts=alerts,
                   top_clients=top_clients, group=group, group_list=group_choices(request),
+                  crumbs=crumbs(request, int(group)) if group.isdigit() and group != "0" else None,
+                  subgroups=[g for g in group_choices(request) if group.isdigit() and g["parent_id"] == int(group)],
                   traffic_chart=charts.bars(charts.traffic_series(conn, since, now, bucket, vp), fmt.TZ, label),
                   online_chart=charts.bars(online_series, fmt.TZ, label, bytes_axis=False, legend=(t("online"), "")),
                   top_sites=sites(conn, now - 86400, vp, limit=15) if settings.collect_hosts else [])
@@ -581,7 +592,8 @@ def peer_page(request: Request, peer_id: int, days: int = 1):
         x["blocked"] = any(rule_matches(r["kind"], r["value"], n) for r in active for n in x["names"] | {x["site"]})
     bucket, label = charts.RANGES[days]
     contact = portal.contact(conn, peer_id)
-    return render(request, "peer.html", contact=contact, portal_on=extra_portal(conn, peer_id),
+    return render(request, "peer.html", crumbs=crumbs(request, extra["group_id"], (peer["name"], None)),
+                  contact=contact, portal_on=extra_portal(conn, peer_id),
                   group_list=group_choices(request), peer_group=pg, quota=quota, group_quota=group_quota,
                   portal_config=conn.execute("SELECT portal_config FROM peers WHERE id = ?", (peer_id,)).fetchone()[0],
                   notifier=request.app.state.notifier, peer=peer, extra=extra, sessions=sessions, endpoints=endpoints,
@@ -628,7 +640,9 @@ def peer_config(request: Request, peer_id: int):
     db.event(conn, "admin_config_view", peer_id, None, current_user(request), client_ip(request))
     link = request.session.pop("botlink", None)
     n = notifier(request)
-    return render(request, "config.html", peer_id=peer_id, cfg=cfg, contact=portal.contact(conn, peer_id),
+    gid = conn.execute("SELECT group_id FROM peers WHERE id = ?", (peer_id,)).fetchone()[0]
+    return render(request, "config.html", crumbs=crumbs(request, gid, (cfg["name"], f"/peer/{peer_id}"), (t("Config"), None)),
+                  peer_id=peer_id, cfg=cfg, contact=portal.contact(conn, peer_id),
                   tg_bot=tg_bot_name(request), email_on=n.email_on,
                   botlink=link["url"] if link and link.get("peer") == peer_id else None)
 

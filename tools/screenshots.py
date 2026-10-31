@@ -40,8 +40,8 @@ UA = "awg-panel-screenshots"   # сессия панели привязана к
 # страница → (адрес, подпись для README)
 PAGES = [
     ("overview", "/", "Overview"),
-    ("client", "/peer/1", "Client card"),
-    ("config", "/peer/1/config", "Config, QR and sending"),
+    ("client", "/peer/9", "Client card"),
+    ("config", "/peer/9/config", "Config, QR and sending"),
     ("sites", "/hosts?days=7", "Sites"),
     ("events", "/events", "Events"),
     ("archive", "/archive", "Monthly archive"),
@@ -274,7 +274,7 @@ def main() -> None:
     from app import auth
     pw = "demo-password-123"
     os.environ.update(PANEL_DATA=str(tmp), ADMIN_USER="admin", ADMIN_PASSWORD_HASH=auth.hash_password(pw), TOTP_SECRET=secret,
-                      SESSION_SECRET="s" * 48, COOKIE_SECURE="false", PANEL_COLLECTORS="0", TZ="Europe/Moscow",
+                      SESSION_SECRET="s" * 48, COOKIE_SECURE="false", PANEL_COLLECTORS="0", TZ="UTC",
                       PANEL_HOST="203.0.113.10", PUBLIC_HOST="203.0.113.10")
     import httpx
     import uvicorn
@@ -284,9 +284,10 @@ def main() -> None:
     conn = db.open_db(panel.settings.db_path)
     seed(conn, now, auth.hash_password(pw), load_fernet(panel.settings))
     from app.manage import gen_keypair
-    priv, pub = gen_keypair()   # у демо-клиента 1 есть ключ — для страницы конфига
-    conn.execute("UPDATE peers SET pubkey = ?, private_key_enc = ? WHERE id = 1",
-                 (pub, load_fernet(panel.settings).encrypt(priv.encode())))
+    for pid in (1, 9):          # у демо-клиентов 1 (кабинет) и 9 (подгруппа Sales) есть ключ — для страницы конфига
+        priv, pub = gen_keypair()
+        conn.execute("UPDATE peers SET pubkey = ?, private_key_enc = ?, source = 'panel' WHERE id = ?",
+                     (pub, load_fernet(panel.settings).encrypt(priv.encode()), pid))
     portal.contact(conn, 1)
     conn.execute("UPDATE contacts SET tg_chat_id = 1, tg_name = '@alice' WHERE peer_id = 1")
     portal_token = portal.issue_link(conn, 1, "admin", None)

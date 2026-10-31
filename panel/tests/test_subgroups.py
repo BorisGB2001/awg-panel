@@ -76,3 +76,16 @@ def test_delete_with_subgroups_and_clients(client, monkeypatch):
     tok = _csrf(page)
     client.post(f"/groups/{head}/delete", data={"csrf": tok, "with_subgroups": "1", "with_clients": "1", "confirm": "H"})
     assert sorted(deleted) == [1, 2] and groups.all_groups(conn) == []
+
+
+def test_breadcrumbs(client, world):
+    from app import groups
+    conn, ga, gb = world
+    sub = groups.create(conn, "A-Казань", parent_id=ga)
+    groups.set_peer_group(conn, 2, sub)
+    page = client.get("/peer/2").text
+    crumbs = page.split('class="crumbs"')[1].split("</nav>")[0]
+    assert '<a href="/">' in crumbs and f'href="/?group={ga}"' in crumbs and f'href="/?group={sub}"' in crumbs
+    assert 'aria-current="page">Борис' in crumbs
+    over = client.get(f"/?group={ga}").text
+    assert f'<a href="/?group={sub}">A-Казань</a>' in over                        # ссылки на подгруппы

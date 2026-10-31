@@ -156,6 +156,13 @@ def delete(conn: sqlite3.Connection, group_id: int, with_subgroups: bool = False
     return gone
 
 
+def chain(conn: sqlite3.Connection, group_id: int | None) -> list[sqlite3.Row]:
+    """Группа и её родители — от верхнего уровня к самой группе (для хлебных крошек)."""
+    if group_id is None or get(conn, group_id) is None:
+        return []
+    return [get(conn, g) for g in reversed([group_id, *_ancestors(conn, group_id)])]
+
+
 def _ancestors(conn: sqlite3.Connection, group_id: int) -> list[int]:
     out, cur = [], conn.execute("SELECT parent_id FROM groups WHERE id = ?", (group_id,)).fetchone()
     while cur and cur[0] is not None and cur[0] not in out:
