@@ -129,7 +129,7 @@ def activity_cells(conn, peers, since: int, tz: ZoneInfo) -> dict[tuple[int, int
 RANGES = {1: (600, "%H:%M"), 7: (6 * 3600, "%d.%m %H"), 30: (86400, "%d.%m")}
 
 
-def traffic_bars(rows: list[dict], period: str = "") -> str:
+def traffic_bars(rows: list[dict], period: str = "", hint: str = "") -> str:
     """Топ по трафику: полоска скачано (синяя) + отдано (оранжевая), мелкая подпись.
     rows = {name, down, up, href, series: [(подпись, скачано, отдано), …] | None}. Данные для всплывающей карточки
     (app.js) — в data-tip каждой строки: клиент крупно и его график за период."""
@@ -156,7 +156,7 @@ def traffic_bars(rows: list[dict], period: str = "") -> str:
                    f'<text class="axis val" x="{left + dw + uw + 6:.1f}" y="{y + 16}">↓{size(int(r["down"]))} ↑{size(int(r["up"]))}</text></a>')
     out.append("</svg>")
     out.append(f'<div class="legend"><span class="sw s1"></span>{t("downloaded")} <span class="sw s2"></span>{t("uploaded")}'
-               f' <span class="muted">· {t("hover over a client for details")}</span></div>')
+               f' <span class="muted">· {hint or t("hover over a client for details")}</span></div>')
     return "".join(out)
 
 

@@ -198,3 +198,12 @@ footer .gh { display: inline-flex; align-items: center; gap: 5px; }
 .tip-chart .s2 { fill: var(--accent2); }
 .tip-chart .axis { fill: var(--muted); font-size: 10px; }
 .tbars a:hover .s1 { fill: var(--accent); }
+
+/* иконки действий в таблице групп */
+.tbl td.acts { white-space: nowrap; text-align: right; }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 6px;
+  color: var(--muted); cursor: pointer; vertical-align: middle; list-style: none; }
+.icon-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.icon-btn:hover { background: var(--bg); color: var(--accent); }
+.icon-btn.danger { background: none; }
+.icon-btn.danger:hover { color: var(--danger); }

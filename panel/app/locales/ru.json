@@ -439,8 +439,6 @@
   "Choose one of your groups.": "Выберите одну из своих групп.",
   "Clients from the AmneziaVPN app get here; only super administrators see them.": "Сюда попадают клиенты из приложения AmneziaVPN; их видят только супер-администраторы.",
   "Create groups first.": "Сначала создайте группы.",
-  "Delete the group (clients stay, without a group)": "Удалить группу (клиенты останутся, без группы)",
-  "Edit groups": "Редактировать группы",
   "Group": "Группа",
   "Group changed.": "Группа изменена.",
   "Group deleted; its clients now have no group.": "Группа удалена; её клиенты теперь без группы.",
@@ -659,5 +657,18 @@
   "hover over a client for details": "наведите на клиента — подробнее",
   "total": "всего",
   "Traffic this month ({month}) by group": "Трафик за месяц ({month}) по группам",
-  "groups": "группы"
+  "groups": "группы",
+  "Traffic today by group": "Трафик за сегодня по группам",
+  "Delete the group": "Удалить группу",
+  "Edit the group": "Редактировать группу",
+  "close": "закрыть",
+  "hover over a group for details": "наведите на группу — подробнее",
+  "Delete only the group — clients stay, without a group": "Удалить только группу — клиенты останутся без группы",
+  "Delete the group and its clients": "Удалить группу и всех её клиентов",
+  "Group and its clients deleted. History is kept.": "Группа и её клиенты удалены. История сохранена.",
+  "Group name": "Название группы",
+  "Type the group name to delete it with its clients.": "Чтобы удалить группу вместе с клиентами, введите её название.",
+  "type «{name}»": "введите «{name}»",
+  "Deleted clients are removed from AmneziaWG at once; their history is kept.": "Удалённые клиенты сразу отключаются в AmneziaWG; их история сохраняется.",
+  "What about its clients ({n})?": "Что сделать с её клиентами ({n})?"
 }

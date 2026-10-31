@@ -414,6 +414,7 @@ def index(request: Request, days: int = 1, group: str = ""):
         f"WHERE t.ts >= ?{pw} GROUP BY p.id ORDER BY SUM(t.tx + t.rx) DESC LIMIT 10", (day_ago, *pa)).fetchall()
     month = monthly.current_month(now, fmt.TZ)
     m_start, _ = monthly.month_bounds(month, fmt.TZ)
+    g_rows = [] if group else group_rows(request)
 
     def top10(start: int, daily: bool) -> str:
         """Топ-10 по трафику (скачано + отдано) и график каждого: по часам за сегодня или по дням за месяц."""
@@ -440,7 +441,7 @@ def index(request: Request, days: int = 1, group: str = ""):
             t("by day, this month") if daily else t("by hour, today"))
     return render(request, "index.html", clients=clients, online=online, rx24=totals[0], tx24=totals[1],
                   top_today=top10(fmt.day_start(now), False), top_month=top10(m_start, True), month=month,
-                  groups_month=group_month_bars(conn, group_rows(request), now) if not group else "",
+                  groups_bars=(group_bars(conn, g_rows, now, False), group_bars(conn, g_rows, now, True)) if g_rows else None,
                   events=events, poll=poller.status if poller else None, now=now, days=days, peak=peak, alerts=alerts,
                   top_clients=top_clients, group=group, group_list=group_choices(request),
                   traffic_chart=charts.bars(charts.traffic_series(conn, since, now, bucket, vp), fmt.TZ, label),
@@ -991,36 +992,42 @@ def group_rows(request: Request) -> list[dict]:
     return out
 
 
-def group_month_bars(conn, rows: list[dict], now: int) -> str:
-    """Трафик групп за месяц: скачано + отдано полосками, во всплывающей карточке — график группы по дням."""
-    rows = sorted((g for g in rows if g["d_month"] + g["u_month"]), key=lambda g: -(g["d_month"] + g["u_month"]))
+def group_bars(conn, rows: list[dict], now: int, daily: bool) -> str:
+    """Трафик групп за сегодня (по часам) или за месяц (по дням): скачано + отдано полосками, как топ-10 клиентов;
+    во всплывающей карточке — график группы."""
+    d, u = ("d_month", "u_month") if daily else ("d_today", "u_today")
+    rows = sorted((g for g in rows if g[d] + g[u]), key=lambda g: -(g[d] + g[u]))
     if not rows:
-        return ""
-    m_start, _ = monthly.month_bounds(monthly.current_month(now, fmt.TZ), fmt.TZ)
+        return f'<p class="muted small">{t("No data.")}</p>'
+    start = monthly.month_bounds(monthly.current_month(now, fmt.TZ), fmt.TZ)[0] if daily else fmt.day_start(now)
+    bucket = (lambda ts: fmt.day_start(ts)) if daily else (lambda ts: ts - ts % 3600)
     per: dict[int, dict[int, list[int]]] = {g["id"]: {} for g in rows}
     gw = ",".join("?" * len(per))
     for x in conn.execute("SELECT p.group_id g, t.ts, t.tx, t.rx FROM traffic_hour t JOIN peers p ON p.id = t.peer_id "
-                          f"WHERE t.ts >= ? AND p.group_id IN ({gw})", (m_start, *per)):
-        a = per[x["g"]].setdefault(fmt.day_start(x["ts"]), [0, 0])
+                          f"WHERE t.ts >= ? AND p.group_id IN ({gw})", (start, *per)):
+        a = per[x["g"]].setdefault(bucket(x["ts"]), [0, 0])
         a[0] += x["tx"]
         a[1] += x["rx"]
-    keys, k = [], m_start
+    keys, k = [], start
     while k <= now:
-        keys.append(fmt.day_start(k))
-        k += 86400
+        keys.append(bucket(k))
+        k += 86400 if daily else 3600
+    label = "%d" if daily else "%H"
     return charts.traffic_bars(
-        [{"name": g["name"], "down": g["d_month"], "up": g["u_month"], "href": f"/?group={g['id']}",
-          "series": [(fmt.dt(k, "%d"), *per[g["id"]].get(k, (0, 0))) for k in keys]} for g in rows],
-        t("by day, this month"))
+        [{"name": g["name"], "down": g[d], "up": g[u], "href": f"/?group={g['id']}",
+          "series": [(fmt.dt(k, label), *per[g["id"]].get(k, (0, 0))) for k in keys]} for g in rows],
+        t("by day, this month") if daily else t("by hour, today"), t("hover over a group for details"))
 
 
 @app.get("/groups", response_class=HTMLResponse)
-def groups_page(request: Request):
+def groups_page(request: Request, edit: int = 0, delete: int = 0):
     conn = request.app.state.db
     nogroup = conn.execute("SELECT COUNT(*) FROM peers WHERE group_id IS NULL AND deleted_at IS NULL").fetchone()[0]
     rows = group_rows(request)
-    chart = group_month_bars(conn, rows, int(time.time()))
-    return render(request, "groups.html", rows=rows, nogroup=nogroup, chart=chart)
+    now = int(time.time())
+    chart = (group_bars(conn, rows, now, False), group_bars(conn, rows, now, True)) if len(rows) > 1 else None
+    pick = (lambda gid: next((g for g in rows if g["id"] == gid), None)) if is_super(request) else (lambda gid: None)
+    return render(request, "groups.html", rows=rows, nogroup=nogroup, chart=chart, editing=pick(edit), deleting=pick(delete))
 
 
 @app.get("/groups.csv")
@@ -1039,14 +1046,14 @@ def groups_csv(request: Request):
                     headers={"Content-Disposition": 'attachment; filename="awg-groups.csv"', "Cache-Control": "no-store"})
 
 
-def group_action(request: Request, csrf: str, fn, ok: str) -> RedirectResponse:
+def group_action(request: Request, csrf: str, fn, ok: str, edit: int = 0) -> RedirectResponse:
     require_super(request)
     check_csrf(request, csrf)
     try:
         fn(actor=current_user(request), actor_ip=client_ip(request))
-    except (GroupError, QuotaError) as e:
+    except (GroupError, QuotaError, ManageError, AwgUnavailable) as e:
         flash(request, str(e), "error")
-        return RedirectResponse("/groups", status_code=303)
+        return RedirectResponse(f"/groups?edit={edit}#edit" if edit else "/groups", status_code=303)
     flash(request, ok)
     return RedirectResponse("/groups", status_code=303)
 
@@ -1060,20 +1067,36 @@ def groups_add(request: Request, name: str = Form(""), note: str = Form(""), csr
 @app.post("/groups/{group_id}/update")
 def groups_update(request: Request, group_id: int, name: str = Form(""), note: str = Form(""), csrf: str = Form("")):
     return group_action(request, csrf, lambda **kw: groups.update(request.app.state.db, group_id, name, note, **kw),
-                        t("Group saved."))
+                        t("Group saved."), group_id)
 
 
 @app.post("/groups/{group_id}/quota")
 def groups_quota(request: Request, group_id: int, gib: str = Form(""), period: str = Form("month"),
                  action: str = Form("alert"), csrf: str = Form("")):
     return group_action(request, csrf, lambda **kw: quotas.set_group_quota(request.app.state.db, group_id, gib, period, action, **kw),
-                        t("Quota saved."))
+                        t("Quota saved."), group_id)
 
 
 @app.post("/groups/{group_id}/delete")
-def groups_delete(request: Request, group_id: int, csrf: str = Form("")):
-    return group_action(request, csrf, lambda **kw: groups.delete(request.app.state.db, group_id, **kw),
-                        t("Group deleted; its clients now have no group."))
+def groups_delete(request: Request, group_id: int, with_clients: str = Form(""), confirm: str = Form(""),
+                  csrf: str = Form("")):
+    """Удалить только группу (клиенты остаются без группы) или группу вместе с клиентами — с вводом её названия."""
+    conn = request.app.state.db
+    if not with_clients:
+        return group_action(request, csrf, lambda **kw: groups.delete(conn, group_id, **kw),
+                            t("Group deleted; its clients now have no group."))
+
+    def both(**kw):
+        g = conn.execute("SELECT name FROM groups WHERE id = ?", (group_id,)).fetchone()
+        if g is None:
+            raise GroupError(t("Group not found."))
+        if confirm.strip() != g["name"]:
+            raise GroupError(t("Type the group name to delete it with its clients."))
+        m = manager(request)
+        for p in conn.execute("SELECT id, name FROM peers WHERE group_id = ? AND deleted_at IS NULL", (group_id,)).fetchall():
+            m.delete(p["id"], p["name"], **kw)
+        groups.delete(conn, group_id, **kw)
+    return group_action(request, csrf, both, t("Group and its clients deleted. History is kept."))
 
 
 # ---- бэкапы ----

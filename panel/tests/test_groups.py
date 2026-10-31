@@ -136,11 +136,32 @@ def test_super_admin_group_filter_and_management(client):
     assert re.search(r'Анна</a><div class="muted small">Офис Москва</div>', page)      # группа под именем
     page = client.get("/?group=0").text
     assert "Вера" in page and "Анна" not in page
-    assert "Офис Москва" in client.get("/groups").text
+    gp = client.get("/groups").text
+    assert "Офис Москва" in gp and f'href="/groups?edit={g["id"]}#edit"' in gp and f'href="/groups?delete={g["id"]}#edit"' in gp
+    assert 'id="edit"' not in gp and 'id="edit"' in client.get(f"/groups?edit={g['id']}").text
+    assert 'name="with_clients"' in client.get(f"/groups?delete={g['id']}").text
     client.post(f"/groups/{g['id']}/delete", data={"csrf": tok})
     assert conn.execute("SELECT group_id FROM peers WHERE id = 1").fetchone()[0] is None
     assert groups.all_groups(conn) == []
 
+
+
+def test_delete_group_with_clients(client, monkeypatch):
+    from app import groups, main
+    conn = main.app.state.db
+    for pid, name in ((1, "Анна"), (2, "Вера"), (3, "Глеб")):
+        conn.execute("INSERT INTO peers (id, pubkey, name, ip) VALUES (?, ?, ?, ?)", (pid, f"k{pid}", name, f"10.8.1.{pid}"))
+    gid = groups.create(conn, "A")
+    conn.execute("UPDATE peers SET group_id = ? WHERE id IN (1, 2)", (gid,))
+    deleted = []
+    fake = type("M", (), {"delete": lambda self, pid, confirm, **kw: deleted.append((pid, confirm))})()
+    monkeypatch.setattr(main, "manager", lambda request: fake)
+    _login(client)
+    tok = _csrf(client.get("/groups").text)
+    client.post(f"/groups/{gid}/delete", data={"csrf": tok, "with_clients": "1", "confirm": "B"})
+    assert deleted == [] and groups.all_groups(conn)                      # название не совпало — ничего не удалено
+    client.post(f"/groups/{gid}/delete", data={"csrf": tok, "with_clients": "1", "confirm": "A"})
+    assert sorted(deleted) == [(1, "Анна"), (2, "Вера")] and groups.all_groups(conn) == []
 
 def test_admin_groups_assignment(client):
     from app import admins, groups, main

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.11.0 — 2026-11-01
+
+- Traffic by group, like the client top 10: "today" and "this month" side by side on the overview and the Groups
+  page; hovering a group shows its traffic by hour or by day.
+- Groups page: edit and delete icons in each row instead of the long list of edit forms below. Editing opens one
+  group's form (name, note, quota).
+- Deleting a group asks what to do with its clients: delete only the group (clients stay, without a group) or the
+  group together with all its clients (type the group name to confirm; history is kept).
+
 ## 1.10.0 — 2026-10-31
 
 - Overview: "Traffic this month by group" — the same download/upload bars as the top 10; hovering a group shows its
