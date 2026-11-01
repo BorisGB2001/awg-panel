@@ -65,6 +65,7 @@
     <button type="submit" class="secondary">{{ _("Save contacts") }}</button>
   </form>
   <p class="muted small">{{ _("Telegram ID is the client's numeric ID (they can get it from @userinfobot). The bot can write only to someone who pressed “Start” in it once — a test message is sent on saving. Or send the client a bot link from the config page: the ID is filled in by itself.") }}</p>
+  {% if not extra.has_key %}<p class="flash flash-error small">{{ _("The panel has no private key of this client (it was created in the AmneziaVPN app), so the portal cannot give out the config, QR code or key even when download is allowed. Issue a new config below: after that the client can download it in the portal.") }} <a href="#new-config">{{ _("Issue a new config…") }}</a></p>{% endif %}
   <p class="muted small">{{ _("The client sees only their own data: traffic, connections, sites, restrictions.") }}{% if portal_config %} {{ _("Config download is allowed.") }}{% endif %} {{ _("The link is shown once; reissuing disables the old one.") }}
     {% if not (notifier and notifier.tg) %} {{ _("Telegram is not configured: add TELEGRAM_BOT_TOKEN to .env.") }}{% endif %}</p>
 </section>
@@ -112,7 +113,7 @@
   <p><a class="btn" href="/peer/{{ peer.id }}/config">{{ _("Config, QR and vpn:// key") }}</a></p>
   {% elif not extra.deleted_at %}
   <p class="muted small">{{ _("The client was created in the AmneziaVPN app: its private key exists only on the device, so the panel cannot show that config. The panel can issue a new config (new keys, same IP) — the old one on the device stops working.") }}</p>
-  <details><summary class="btn secondary">{{ _("Issue a new config…") }}</summary>
+  <details id="new-config"><summary class="btn secondary">{{ _("Issue a new config…") }}</summary>
     <form method="post" action="/peer/{{ peer.id }}/rekey" class="row-form"><input type="hidden" name="csrf" value="{{ csrf }}">
       <button type="submit" class="danger">{{ _("Yes, new keys — the old config stops working") }}</button></form></details>
   {% endif %}

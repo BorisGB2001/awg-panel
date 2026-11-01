@@ -59,6 +59,11 @@
   <div class="qr"><img src="/me/qr/vpn.svg" alt="QR AmneziaVPN" width="280" height="280"></div>
   <p class="muted small">{{ _("QR for the AmneziaVPN app. Do not share it — it is your personal key.") }}</p>
 </section>
+{% elif config_nokey %}
+<section class="card">
+  <h1>{{ _("My config") }}</h1>
+  <p class="muted">{{ _("The config is not available here yet: it was created in the AmneziaVPN app and the panel does not have its key. Ask the administrator to issue a new config.") }}</p>
+</section>
 {% endif %}
 
 <section class="card">

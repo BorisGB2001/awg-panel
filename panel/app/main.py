@@ -1602,7 +1602,10 @@ def peer_portal(request: Request, peer_id: int, action: str = Form(""), csrf: st
         flash(request, t("Link revoked: the client portal is closed."))
     elif action in ("config_on", "config_off"):
         conn.execute("UPDATE peers SET portal_config = ? WHERE id = ?", (int(action == "config_on"), peer_id))
-        flash(request, t("Config download in the portal is allowed.") if action == "config_on" else t("Config download in the portal is forbidden."))
+        if action == "config_on" and not conn.execute("SELECT private_key_enc FROM peers WHERE id = ?", (peer_id,)).fetchone()[0]:
+            flash(request, t("Config download is allowed, but the panel has no key of this client: issue a new config, otherwise the portal has nothing to give out."), "error")
+        else:
+            flash(request, t("Config download in the portal is allowed.") if action == "config_on" else t("Config download in the portal is forbidden."))
     elif action == "test":
         n = notifier(request).daily(peer_id)
         flash(request, t("Report sent: channels {n}.", n=n) if n else t("Not sent: the client has no connected channels or they are not configured."),
@@ -1684,6 +1687,7 @@ def me_page(request: Request, days: int = 1):
         "quota": quotas.status(conn, peer["quota_bytes"], peer["quota_period"], peer["id"], now),
         "contact": portal.contact(conn, peer["id"]), "csrf": data["c"], "tg_bot": tg_name, "email_on": bool(n and n.email_on),
         "can_config": bool(peer["portal_config"] and peer["private_key_enc"]),
+        "config_nokey": bool(peer["portal_config"] and not peer["private_key_enc"]),
         "traffic_chart": charts.bars(charts.traffic_series(conn, now - days * 86400, now, bucket, peer["id"]), fmt.TZ, label),
         "flash": None, "user": None, "lang": i18n.get(), "theme": theme_of(request), "path": request.url.path})
 

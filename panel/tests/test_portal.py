@@ -46,6 +46,9 @@ def test_portal_link_login_and_isolation(app_client):
     assert c.get("/").status_code in (303, 401) or "/login" in c.get("/", follow_redirects=False).headers.get("location", "")
     assert c.get("/me/stats.png").headers["content-type"] == "image/png"
     assert c.get("/me/config.conf").status_code == 404                           # конфиг не разрешён
+    conn.execute("UPDATE peers SET portal_config = 1 WHERE id = 5")             # разрешено, но ключа у панели нет
+    page = c.get("/me").text
+    assert "/me/config.conf" not in page and "does not have its key" in page
     portal.issue_link(conn, 5, "admin", None)                                     # перевыпуск — старая сессия недействительна
     assert c.get("/me").status_code == 401
 

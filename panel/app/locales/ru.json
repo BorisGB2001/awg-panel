@@ -721,5 +721,8 @@
   "October": "Октябрь",
   "November": "Ноябрь",
   "December": "Декабрь",
-  "clients: {n}": "клиентов: {n}"
+  "clients: {n}": "клиентов: {n}",
+  "The panel has no private key of this client (it was created in the AmneziaVPN app), so the portal cannot give out the config, QR code or key even when download is allowed. Issue a new config below: after that the client can download it in the portal.": "У панели нет приватного ключа этого клиента (он создан в приложении AmneziaVPN), поэтому кабинет не может выдать конфиг, QR-код или ключ, даже если скачивание разрешено. Выдайте новый конфиг ниже — после этого клиент сможет скачать его в кабинете.",
+  "The config is not available here yet: it was created in the AmneziaVPN app and the panel does not have its key. Ask the administrator to issue a new config.": "Конфиг здесь пока недоступен: он создан в приложении AmneziaVPN, и у панели нет его ключа. Попросите администратора выдать новый конфиг.",
+  "Config download is allowed, but the panel has no key of this client: issue a new config, otherwise the portal has nothing to give out.": "Скачивание конфига разрешено, но у панели нет ключа этого клиента: выдайте новый конфиг, иначе кабинету нечего выдавать."
 }

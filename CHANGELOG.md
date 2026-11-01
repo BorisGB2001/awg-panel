@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.14.1 — 2026-11-01
+
+- Client portal: for a client created in the AmneziaVPN app the panel has no private key, so the portal cannot give out
+  its config, QR code or key. The portal now says so instead of hiding the section, and the client page warns about it
+  next to "Allow config download" with a link to "Issue a new config" (new keys, same IP).
+
 ## 1.14.0 — 2026-11-01
 
 - Server page: "Client path to the internet". The server address and the address clients exit from may differ, and
