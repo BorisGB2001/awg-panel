@@ -3,7 +3,8 @@
 FROM python:3.13-alpine
 
 # tcpdump/conntrack/nsenter run in the amnezia-awg2 network namespace
-RUN apk add --no-cache tcpdump conntrack-tools util-linux-misc iproute2 tzdata font-dejavu
+# boris.gb 2026-11-01 00:33 - curl: "what is my IP" requests from the clients' namespace (Server tab, client path to the internet)
+RUN apk add --no-cache tcpdump conntrack-tools util-linux-misc iproute2 tzdata font-dejavu curl
 # boris.gb 2026-10-29 00:13 - font-dejavu: non-Latin text in the daily client report image (Pillow)
 
 WORKDIR /srv

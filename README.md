@@ -36,6 +36,7 @@ Demo data: the clients, addresses and traffic are fictional. Click a picture to 
 - **Client portal**: a personal link where a client sees their own traffic, sessions and sites, downloads their config and subscribes to notifications.
 - **Notifications**: Telegram bot and e-mail, including a daily PNG report (today's chart and top-10 sites).
 - **Monthly archive**: statistics reset on the 1st at 00:00, the previous month is kept in the archive.
+- **Client path to the internet** (Server page): traceroute to test hosts and to "what is my IP" services from the clients' network context, routes merged into a tree and the list of exit addresses — with split routing clients exit from several addresses. Each address shows DB-IP, ipinfo.io (optional API key in the settings, stored encrypted) and Yandex (IP, ASN, VPN flag) data.
 - **Administrators**: super administrators and group administrators, each with a password and TOTP; a new administrator gets a temporary password and sets up the authenticator on first sign-in.
 - **Groups**: clients are organised in groups, which can be nested (head organisation → branches → departments); a group administrator sees and manages only the clients of its groups and their subgroups. Per-group traffic today and this month, including subgroups.
 - **Quotas**: traffic limits per group or client per day or month, alerts at 80 % and 100 %, optionally disabling clients until the period ends.
