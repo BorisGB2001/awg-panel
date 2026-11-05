@@ -139,3 +139,39 @@ document.querySelectorAll("select[data-autosubmit]").forEach((s) => s.addEventLi
     }
   });
 })();
+
+// Индикатор загрузки: полоса сверху при переходе по ссылке или отправке формы — страница могла «замереть» на
+// десятки секунд (сборка бэкапа, замер) без признаков жизни. Кнопка с data-busy ещё и меняет надпись.
+(function () {
+  const bar = document.createElement("div");
+  bar.className = "loadbar";
+  bar.hidden = true;
+  document.body.appendChild(bar);
+  const show = () => { bar.hidden = false; };
+  document.addEventListener("submit", (ev) => {
+    if (ev.defaultPrevented) return;
+    const btn = ev.submitter;
+    show();
+    if (btn && btn.dataset.busy) {
+      const text = btn.textContent;
+      btn.textContent = btn.dataset.busy;
+      btn.classList.add("busy");
+      // скачивание файла не уводит со страницы — вернуть кнопку, когда браузер начнёт загрузку
+      if (btn.hasAttribute("data-busy-download")) {
+        setTimeout(() => { btn.textContent = text; btn.classList.remove("busy"); bar.hidden = true; }, 60000);
+        window.addEventListener("focus", () => { btn.textContent = text; btn.classList.remove("busy"); bar.hidden = true; }, { once: true });
+      }
+    }
+  });
+  document.addEventListener("click", (ev) => {
+    const a = ev.target.closest && ev.target.closest("a[href]");
+    if (!a || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.button !== 0 || a.target || a.hasAttribute("download")) return;
+    const href = a.getAttribute("href");
+    if (!href || href.startsWith("#") || href.startsWith("javascript:") || a.origin !== location.origin) return;
+    show();
+  });
+  window.addEventListener("pageshow", () => { bar.hidden = true; });   // назад из кэша
+  // страница с идущей в фоне работой обновляется сама
+  const r = document.querySelector("[data-reload]");
+  if (r) setTimeout(() => location.reload(), Number(r.dataset.reload) * 1000);
+})();

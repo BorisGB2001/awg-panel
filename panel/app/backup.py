@@ -24,6 +24,7 @@ import hashlib
 import io
 import logging
 import os
+import re
 import sqlite3
 import sys
 import tarfile
@@ -120,6 +121,89 @@ amnezia-awg/      AmneziaWG files from /opt/amnezia/awg in the amnezia-awg2 cont
 """
 
 
+HISTORY_TABLES = ("flows", "dns")    # журнал соединений и DNS: 90 % базы, восстанавливается отдельно и по желанию
+
+
+def snapshot(db_path, data_dir, history: bool = False) -> bytes:
+    """Снимок БД без остановки панели (sqlite backup). Без history — без журнала соединений и DNS, сжатый VACUUM:
+    в нём всё, что нужно для работы (клиенты, ключи, группы, статистика по часам и дням), и он в разы меньше."""
+    with tempfile.TemporaryDirectory(dir=data_dir) as tmp:
+        snap = os.path.join(tmp, "panel.db")
+        src, dst = sqlite3.connect(db_path), sqlite3.connect(snap)
+        try:
+            src.backup(dst)
+            if not history:
+                for tbl in HISTORY_TABLES:
+                    dst.execute(f"DELETE FROM {tbl}")
+                dst.commit()
+                dst.execute("VACUUM")
+        finally:
+            dst.close()
+            src.close()
+        with open(snap, "rb") as f:
+            return f.read()
+
+
+def history_archive(db_path, data_dir) -> bytes:
+    """tar.gz: history.db — только таблицы журнала соединений и DNS (без индексов) и HISTORY.txt."""
+    now = int(time.time())
+    with tempfile.TemporaryDirectory(dir=data_dir) as tmp:
+        path = os.path.join(tmp, "history.db")
+        src = sqlite3.connect(db_path, isolation_level=None)
+        try:
+            src.execute("ATTACH DATABASE ? AS h", (path,))
+            src.execute("BEGIN")           # один снимок на обе таблицы
+            for tbl in HISTORY_TABLES:   # без ключей и индексов: файл вдвое меньше, дубли отсекает база при загрузке
+                if src.execute("SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = ?", (tbl,)).fetchone():
+                    src.execute(f"CREATE TABLE h.{tbl} AS SELECT * FROM main.{tbl}")
+            src.execute("COMMIT")
+            src.execute("DETACH DATABASE h")
+        finally:
+            src.close()
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz", compresslevel=6) as tar:
+            def add(name: str, data: bytes) -> None:
+                info = tarfile.TarInfo(f"awg-history/{name}")
+                info.size, info.mtime, info.mode = len(data), now, 0o600
+                tar.addfile(info, io.BytesIO(data))
+            with open(path, "rb") as f:
+                add("history.db", f.read())
+            add("HISTORY.txt", HISTORY_TXT.format(when=fmt.dt(now, "%Y-%m-%d %H:%M")).encode())
+        return buf.getvalue()
+
+
+HISTORY_TXT = """AWG panel connection log — {when}
+Sites and DNS queries of the clients for the last days (tables flows and dns). The panel works without it:
+restore the full backup first, then load this file on the Backups page ("Restore from a backup").
+"""
+
+
+def split(name: str, blob: bytes, limit: int | None = None) -> list[tuple[str, bytes]]:
+    """Файл больше лимита Telegram — на части name.001, name.002, …; склеиваются обратно: cat name.0* > name."""
+    limit = limit or LIMIT
+    if len(blob) <= limit:
+        return [(name, blob)]
+    return [(f"{name}.{i // limit + 1:03d}", blob[i:i + limit]) for i in range(0, len(blob), limit)]
+
+
+def join(files: list[tuple[str, bytes]]) -> list[tuple[str, bytes]]:
+    """Обратно к split: части одного файла (name.001, name.002, …) склеиваются по порядку, остальные — как есть."""
+    whole: dict[str, list[tuple[int, bytes]]] = {}
+    out: list[tuple[str, bytes]] = []
+    for name, data in files:
+        m = re.fullmatch(r"(.+)\.(\d{3})", name or "")
+        if m:
+            whole.setdefault(m.group(1), []).append((int(m.group(2)), data))
+        else:
+            out.append((name, data))
+    for base, parts in whole.items():
+        nums = sorted(n for n, _ in parts)
+        if nums != list(range(1, len(nums) + 1)):
+            raise BackupError(t("Not all parts of {name} were chosen: got {got}.", name=base, got=", ".join(f"{n:03d}" for n in nums)))
+        out.append((base, b"".join(d for _, d in sorted(parts))))
+    return out
+
+
 def portal_archive(db_path, data_dir, awg) -> bytes:
     """tar.gz: снимок БД (sqlite backup — без остановки панели), data.key и файлы AmneziaWG."""
     buf = io.BytesIO()
@@ -130,16 +214,7 @@ def portal_archive(db_path, data_dir, awg) -> bytes:
             info.size, info.mtime, info.mode = len(data), now, 0o600
             tar.addfile(info, io.BytesIO(data))
 
-        with tempfile.TemporaryDirectory(dir=data_dir) as tmp:
-            snap = os.path.join(tmp, "panel.db")
-            src, dst = sqlite3.connect(db_path), sqlite3.connect(snap)
-            try:
-                src.backup(dst)
-            finally:
-                dst.close()
-                src.close()
-            with open(snap, "rb") as f:
-                add("panel.db", f.read())
+        add("panel.db", snapshot(db_path, data_dir))
         if os.path.exists(ENV_FILE):
             with open(ENV_FILE, "rb") as f:
                 add("panel.env", f.read())
@@ -182,17 +257,8 @@ def full_archive(db_path, data_dir, awg, host_dir: str = HOST_DIR) -> bytes:
                 path = os.path.join(root, n)
                 with open(path, "rb") as f:
                     put(f"panel/{rel}{n}", f.read(), 0o755 if os.access(path, os.X_OK) else 0o644)
-    # данные панели
-    with tempfile.TemporaryDirectory(dir=data_dir) as tmp:
-        snap = os.path.join(tmp, "panel.db")
-        src, dst = sqlite3.connect(db_path), sqlite3.connect(snap)
-        try:
-            src.backup(dst)
-        finally:
-            dst.close()
-            src.close()
-        with open(snap, "rb") as f:
-            put("panel-data/panel.db", f.read())
+    # данные панели (без журнала соединений — он идёт отдельным архивом)
+    put("panel-data/panel.db", snapshot(db_path, data_dir))
     for name, src_path in (("data.key", os.path.join(data_dir, "data.key")), ("panel.env", ENV_FILE)):
         if os.path.exists(src_path):
             with open(src_path, "rb") as f:
@@ -302,13 +368,48 @@ def read_archive(blob: bytes, passphrase: str) -> dict[str, bytes]:
         for m in tar.getmembers():
             if m.isfile() and ".." not in m.name and not m.name.startswith("/"):
                 name = m.name
-                if name.startswith("awg-full/"):
+                if name == "awg-history/history.db":
+                    name = "history.db"
+                elif name.startswith("awg-full/"):
                     name = FULL_MAP.get(name) or ("amnezia-awg/" + name[len("awg-full/amnezia/awg/"):]
                                                   if name.startswith("awg-full/amnezia/awg/") else name)
                 out[name] = tar.extractfile(m).read()
+    if "history.db" in out and out["history.db"].startswith(SQLITE_HEADER):
+        return out
     if "panel.db" not in out or not out["panel.db"].startswith(SQLITE_HEADER):
         raise BackupError(t("The backup has no panel database."))
     return out
+
+
+def import_history(db_path, data_dir, blob: bytes) -> int:
+    """Журнал соединений из архива awg-history — в текущую базу; уже имеющиеся строки не дублируются.
+    Возвращает число добавленных строк."""
+    added = 0
+    with tempfile.TemporaryDirectory(dir=str(data_dir)) as tmp:
+        path = os.path.join(tmp, "history.db")
+        with open(path, "wb") as f:
+            f.write(blob)
+        conn = sqlite3.connect(str(db_path), timeout=30, isolation_level=None)
+        try:
+            conn.execute("PRAGMA busy_timeout=30000")
+            conn.execute("ATTACH DATABASE ? AS h", (path,))
+            conn.execute("BEGIN IMMEDIATE")
+            for tbl in HISTORY_TABLES:
+                if not conn.execute("SELECT 1 FROM h.sqlite_master WHERE type = 'table' AND name = ?", (tbl,)).fetchone():
+                    continue
+                mine = [r[1] for r in conn.execute(f"PRAGMA main.table_info({tbl})")]
+                theirs = {r[1] for r in conn.execute(f"PRAGMA h.table_info({tbl})")}
+                cols = ", ".join(c for c in mine if c in theirs)
+                added += conn.execute(f"INSERT OR IGNORE INTO main.{tbl} ({cols}) SELECT {cols} FROM h.{tbl}").rowcount
+            conn.execute("COMMIT")
+            conn.execute("DETACH DATABASE h")
+        except BaseException:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+        finally:
+            conn.close()
+    return added
 
 
 def set_host(env: bytes, host: str) -> bytes:
@@ -412,7 +513,7 @@ def job(conn: sqlite3.Connection, admin_id: int) -> sqlite3.Row:
 
 
 def save_job(conn: sqlite3.Connection, fernet, admin_id: int, enabled: bool, to_telegram: bool, to_email: bool, email: str,
-             period: str, hour: str, weekday: str, password: str) -> None:
+             period: str, hour: str, weekday: str, password: str, with_history: bool = True) -> None:
     from .portal import EMAIL_RE
     cur = job(conn, admin_id)
     email = (email or "").strip()[:200]
@@ -428,9 +529,13 @@ def save_job(conn: sqlite3.Connection, fernet, admin_id: int, enabled: bool, to_
     if enabled and not (to_telegram or to_email):
         raise BackupError(t("Choose where to send the backup: Telegram, e-mail or both."))
     conn.execute("UPDATE backup_jobs SET enabled = ?, to_telegram = ?, to_email = ?, email = ?, period = ?, hour = ?, "
-                 "weekday = ?, pass_enc = ? WHERE admin_id = ?",
+                 "weekday = ?, pass_enc = ?, with_history = ? WHERE admin_id = ?",
                  (int(enabled), int(to_telegram), int(to_email), email or None, period,
-                  int(hour) % 24 if hour.isdigit() else 3, int(weekday) % 7 if weekday.isdigit() else 0, pass_enc, admin_id))
+                  int(hour) % 24 if hour.isdigit() else 3, int(weekday) % 7 if weekday.isdigit() else 0, pass_enc,
+                  int(with_history), admin_id))
+
+
+RETRIES, RETRY_GAP = 3, 30 * 60      # сбой по расписанию (часто — сеть): ещё 3 попытки через 30 минут
 
 
 class Backups:
@@ -439,18 +544,41 @@ class Backups:
     def __init__(self, settings, conn: sqlite3.Connection, notifier, fernet, awg=None):
         self.s, self.conn, self.n, self.fernet, self.awg = settings, conn, notifier, fernet, awg
         self._lock = threading.Lock()
+        self.running: set[int] = set()     # admin_id, чей бэкап собирается прямо сейчас (кнопка «сейчас»)
+        self.pause = 20                    # секунд между повторами отправки одного файла
 
-    def build(self, admin: sqlite3.Row, now: int) -> tuple[str, bytes]:
+    def build(self, admin: sqlite3.Row, now: int, history: bool = False) -> list[tuple[str, bytes]]:
+        """Незашифрованные архивы: супер-администратору — полный бэкап и (по желанию) журнал соединений отдельно."""
         stamp = fmt.dt(now, "%Y%m%d-%H%M")
         if admin["role"] == "super":
-            return f"awg-full-{stamp}.tar.gz.enc", full_archive(self.s.db_path, str(self.s.data_dir), self.awg)
+            out = [(f"awg-full-{stamp}.tar.gz.enc", full_archive(self.s.db_path, str(self.s.data_dir), self.awg))]
+            if history:
+                out.append((f"awg-history-{stamp}.tar.gz.enc", history_archive(self.s.db_path, str(self.s.data_dir))))
+            return out
         gids = groups.admin_group_ids(self.conn, admin["id"])
         if not gids:
             raise BackupError(t("No groups: sees nothing"))
-        return f"awg-groups-{admin['username']}-{stamp}.awgbak", group_archive(self.conn, gids, self.n.config_for)
+        return [(f"awg-groups-{admin['username']}-{stamp}.awgbak", group_archive(self.conn, gids, self.n.config_for))]
 
-    def run(self, admin_id: int, now: int | None = None) -> str:
-        """Собрать, зашифровать и отправить бэкап администратора; итог пишется в задание и в журнал."""
+    @staticmethod
+    def seal(name: str, raw: bytes, password: str) -> bytes:
+        return encrypt_openssl(raw, password) if name.endswith(".enc") else encrypt(raw, password)
+
+    def _send(self, fn, *args) -> None:
+        """Отправка одного файла: сеть сервера бывает с перерывами — ещё две попытки с паузой."""
+        for attempt in range(3):
+            try:
+                return fn(*args)
+            except BackupError:
+                raise
+            except Exception:  # noqa: BLE001
+                if attempt == 2:
+                    raise
+                time.sleep(self.pause)
+
+    def run(self, admin_id: int, now: int | None = None, alert: bool = True) -> str:
+        """Собрать, зашифровать и отправить бэкап администратора; итог пишется в задание и в журнал.
+        alert=False — это не последняя попытка: сбой записывается без алерта, повтор будет позже."""
         now = int(time.time()) if now is None else now
         with self._lock:
             admin = self.conn.execute("SELECT * FROM admins WHERE id = ?", (admin_id,)).fetchone()
@@ -459,19 +587,23 @@ class Backups:
             try:
                 if not j["pass_enc"]:
                     raise BackupError(t("Set an archive password: backups are always encrypted."))
-                name, raw = self.build(admin, now)
                 password = self.fernet.decrypt(j["pass_enc"].encode()).decode()
-                blob = encrypt_openssl(raw, password) if name.endswith(".enc") else encrypt(raw, password)
-                size = len(blob)
-                if size > LIMIT:
-                    raise BackupError(t("The backup is too large to send ({size}).", size=fmt.size(size)))
-                caption = t("AWG panel backup {name}, {size}. Encrypted with your backup password.", name=name, size=fmt.size(size))
+                files: list[tuple[str, bytes]] = []
+                for name, raw in self.build(admin, now, bool(j["with_history"])):
+                    files += split(name, self.seal(name, raw, password))
+                size = sum(len(b) for _, b in files)
+                total = len(files)
                 if j["to_telegram"]:
                     try:
                         if not (self.n.tg and admin["tg_chat_id"]):
                             raise BackupError(t("Telegram is not connected on the My account page."))
-                        self.n.tg.send_document(admin["tg_chat_id"], name, blob, caption, "application/octet-stream")
-                        sent.append("Telegram")
+                        for i, (name, blob) in enumerate(files, 1):
+                            caption = t("AWG panel backup {name}, {size}. Encrypted with your backup password.",
+                                        name=name, size=fmt.size(len(blob)))
+                            if total > 1:
+                                caption += " " + t("File {i} of {n}.", i=i, n=total)
+                            self._send(self.n.tg.send_document, admin["tg_chat_id"], name, blob, caption, "application/octet-stream")
+                        sent.append("Telegram" + (f" ({total})" if total > 1 else ""))
                     except Exception as e:  # noqa: BLE001 — второй канал всё равно пробуем
                         errors.append(f"Telegram: {e}")
                 if j["to_email"]:
@@ -479,8 +611,12 @@ class Backups:
                         if not self.n.email_on:
                             raise BackupError(t("E-mail is not configured: add SMTP_* to .env on the server."))
                         from .notify import send_email
-                        send_email(self.s, j["email"], t("AWG panel backup {name}", name=name), caption,
-                                   files=[(name, blob, "application", "octet-stream")])
+                        for i, (name, blob) in enumerate(files, 1):   # по письму на файл: у почты свой лимит вложений
+                            caption = t("AWG panel backup {name}, {size}. Encrypted with your backup password.",
+                                        name=name, size=fmt.size(len(blob)))
+                            self._send(send_email, self.s, j["email"], t("AWG panel backup {name}", name=name)
+                                       + (f" ({i}/{total})" if total > 1 else ""), caption,
+                                       None, [(name, blob, "application", "octet-stream")])
                         sent.append(j["email"])
                     except Exception as e:  # noqa: BLE001
                         errors.append(f"e-mail: {e}")
@@ -490,20 +626,44 @@ class Backups:
             status = (t("sent: {to}", to=", ".join(sent)) if sent else "") + ("; " if sent and errors else "") + "; ".join(errors)
             self.conn.execute("UPDATE backup_jobs SET last_ts = ?, last_ok = ?, last_status = ?, last_size = ? WHERE admin_id = ?",
                               (now, int(ok), status[:500], size, admin_id))
-            db.event(self.conn, "backup_sent" if ok else "alert_backup", None,
-                     {"username": admin["username"], "status": status[:300]}, admin["username"] if ok else None, ts=now)
+            kind = "backup_sent" if ok else ("alert_backup" if alert else "backup_retry")
+            db.event(self.conn, kind, None, {"username": admin["username"], "status": status[:300]},
+                     admin["username"] if ok else None, ts=now)
             return status
+
+    def start(self, admin_id: int) -> bool:
+        """Кнопка «Сделать бэкап сейчас»: сборка и отправка идут в фоне (минута и больше), страница не ждёт."""
+        if admin_id in self.running:
+            return False
+        self.running.add(admin_id)
+
+        def work() -> None:
+            try:
+                self.run(admin_id)
+            except Exception:  # noqa: BLE001
+                log.exception("backup")
+            finally:
+                self.running.discard(admin_id)
+        threading.Thread(target=work, name="backup-now", daemon=True).start()
+        return True
 
     def due(self, now: int) -> int:
         local = datetime.datetime.fromtimestamp(now, fmt.TZ)
         day = local.strftime("%Y-%m-%d")
         n = 0
         for j in self.conn.execute("SELECT j.* FROM backup_jobs j JOIN admins a ON a.id = j.admin_id "
-                                   "WHERE j.enabled = 1 AND a.disabled = 0 AND j.hour = ?", (local.hour,)).fetchall():
-            if j["last_day"] == day or (j["period"] == "weekly" and local.weekday() != j["weekday"]):
+                                   "WHERE j.enabled = 1 AND a.disabled = 0").fetchall():
+            if j["last_day"] != day and j["hour"] == local.hour:
+                if j["period"] == "weekly" and local.weekday() != j["weekday"]:
+                    continue
+                self.conn.execute("UPDATE backup_jobs SET last_day = ?, retries = 0 WHERE admin_id = ?", (day, j["admin_id"]))
+                self.run(j["admin_id"], now, alert=False)
+            elif (j["last_day"] == day and not j["last_ok"] and j["retries"] < RETRIES
+                  and now - (j["last_ts"] or 0) >= RETRY_GAP):
+                self.conn.execute("UPDATE backup_jobs SET retries = retries + 1 WHERE admin_id = ?", (j["admin_id"],))
+                self.run(j["admin_id"], now, alert=j["retries"] + 1 >= RETRIES)
+            else:
                 continue
-            self.conn.execute("UPDATE backup_jobs SET last_day = ? WHERE admin_id = ?", (day, j["admin_id"]))
-            self.run(j["admin_id"], now)
             n += 1
         return n
 

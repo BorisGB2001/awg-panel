@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import secrets
+import sqlite3
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -26,6 +27,7 @@ from . import __version__, admins, auth, backup, charts, egress, groups, ipallow
 from .fmt import N_
 from .i18n import t
 from .awgctl import AWG, AwgUnavailable
+from . import alerts as alerts_mod
 from .alerts import Alerts
 from .blocker import PRESETS, Blocker, BlockError, rule_matches
 from .config import settings
@@ -1197,9 +1199,9 @@ def backups_page(request: Request):
     row = current_admin(request)
     conn = request.app.state.db
     return render(request, "backups.html", job=backup.job(conn, row["id"]), tg_bot=tg_bot_name(request),
-                  email_on=notifier(request).email_on,
+                  email_on=notifier(request).email_on, running=row["id"] in backups(request).running,
                   my_groups=[g["name"] for g in group_choices(request)] if row["role"] != "super" else [],
-                  history=conn.execute("SELECT ts, kind, detail FROM events WHERE kind IN ('backup_sent', 'alert_backup') "
+                  history=conn.execute("SELECT ts, kind, detail FROM events WHERE kind IN ('backup_sent', 'alert_backup', 'backup_retry') "
                                        "AND detail LIKE ? ORDER BY id DESC LIMIT 10",
                                        (f'%"username": "{row["username"]}"%',)).fetchall())
 
@@ -1207,11 +1209,12 @@ def backups_page(request: Request):
 @app.post("/backups/save")
 def backups_save(request: Request, enabled: str = Form(""), to_telegram: str = Form(""), to_email: str = Form(""),
                  email: str = Form(""), period: str = Form("daily"), hour: str = Form("3"), weekday: str = Form("0"),
-                 password: str = Form(""), csrf: str = Form("")):
+                 password: str = Form(""), with_history: str = Form(""), csrf: str = Form("")):
     check_csrf(request, csrf)
     try:
         backup.save_job(request.app.state.db, load_fernet(settings), current_admin(request)["id"], enabled == "1",
-                        to_telegram == "1", to_email == "1", email, period, hour, weekday, password)
+                        to_telegram == "1", to_email == "1", email, period, hour, weekday, password,
+                        with_history=with_history == "1")
         flash(request, t("Backup settings saved."))
     except backup.BackupError as e:
         flash(request, str(e), "error")
@@ -1228,12 +1231,23 @@ async def backups_restore(request: Request):
     try:
         if str(form.get("confirm", "")).strip().upper() != "RESTORE":
             raise backup.BackupError(t("Type RESTORE to confirm."))
-        upload = form.get("file")
-        if not parts or upload is None or not hasattr(upload, "read"):
+        uploads = [u for u in form.getlist("file") if hasattr(u, "read")]
+        if not uploads:
             raise backup.BackupError(t("Choose the backup file and what to restore."))
-        files = backup.read_archive(await upload.read(), str(form.get("password", "")))
+        blobs = backup.join([(u.filename or "", await u.read()) for u in uploads])
+        if len(blobs) != 1:
+            raise backup.BackupError(t("Choose one backup: its file or all of its parts (.001, .002, …)."))
+        files = backup.read_archive(blobs[0][1], str(form.get("password", "")))
+        if "history.db" in files:      # журнал соединений: дописывается в текущую базу, без перезапуска
+            n = backup.import_history(settings.db_path, settings.data_dir, files["history.db"])
+            db.event(request.app.state.db, "backup_restored", None, {"parts": ["history"], "done": [str(n)]},
+                     current_user(request), client_ip(request))
+            flash(request, t("Connection log loaded: {n} records added.", n=n))
+            return RedirectResponse("/backups", status_code=303)
+        if not parts:
+            raise backup.BackupError(t("Choose the backup file and what to restore."))
         done = backup.restore(files, settings, AWG(settings), parts, live=True)
-    except (backup.BackupError, AwgUnavailable, OSError) as e:
+    except (backup.BackupError, AwgUnavailable, OSError, sqlite3.Error) as e:
         flash(request, t("Not restored: {error}", error=e), "error")
         return RedirectResponse("/backups#restore", status_code=303)
     db.event(request.app.state.db, "backup_restored", None, {"parts": sorted(parts), "done": done},
@@ -1247,8 +1261,9 @@ async def backups_restore(request: Request):
 
 
 @app.post("/backups/download")
-def backups_download(request: Request, csrf: str = Form("")):
-    """Скачать свой бэкап прямо из браузера (тот же зашифрованный файл, что уходит в Telegram и на почту)."""
+def backups_download(request: Request, what: str = Form("main"), csrf: str = Form("")):
+    """Скачать свой бэкап прямо из браузера (тот же зашифрованный файл, что уходит в Telegram и на почту);
+    what=history — журнал соединений супер-администратора отдельным файлом."""
     check_csrf(request, csrf)
     row = current_admin(request)
     j = backup.job(request.app.state.db, row["id"])
@@ -1256,12 +1271,16 @@ def backups_download(request: Request, csrf: str = Form("")):
         flash(request, t("Set an archive password: backups are always encrypted."), "error")
         return RedirectResponse("/backups", status_code=303)
     try:
-        name, raw = backups(request).build(row, int(time.time()))
+        if what == "history":
+            require_super(request)
+            name = f"awg-history-{fmt.dt(int(time.time()), '%Y%m%d-%H%M')}.tar.gz.enc"
+            raw = backup.history_archive(settings.db_path, str(settings.data_dir))
+        else:
+            name, raw = backups(request).build(row, int(time.time()))[0]
     except backup.BackupError as e:
         flash(request, str(e), "error")
         return RedirectResponse("/backups", status_code=303)
-    password = load_fernet(settings).decrypt(j["pass_enc"].encode()).decode()
-    blob = backup.encrypt_openssl(raw, password) if name.endswith(".enc") else backup.encrypt(raw, password)
+    blob = backup.Backups.seal(name, raw, load_fernet(settings).decrypt(j["pass_enc"].encode()).decode())
     db.event(request.app.state.db, "backup_downloaded", None, {"username": row["username"], "file": name},
              row["username"], client_ip(request))
     return Response(blob, media_type="application/octet-stream",
@@ -1271,20 +1290,28 @@ def backups_download(request: Request, csrf: str = Form("")):
 @app.post("/backups/run")
 def backups_run(request: Request, csrf: str = Form("")):
     check_csrf(request, csrf)
-    status = backups(request).run(current_admin(request)["id"])
-    j = backup.job(request.app.state.db, current_admin(request)["id"])
-    flash(request, t("Backup: {status}", status=status), "ok" if j["last_ok"] else "error")
+    if backups(request).start(current_admin(request)["id"]):
+        flash(request, t("The backup is being made; the result will appear here and in Telegram in a minute or two."))
+    else:
+        flash(request, t("A backup is already being made."), "error")
     return RedirectResponse("/backups", status_code=303)
 
 
 # ---- учётки администраторов ----
 
 def tg_bot_name(request: Request) -> str | None:
+    """Имя бота; если Telegram сейчас недоступен — последнее известное (страница не ждёт сеть)."""
     n = notifier(request)
-    try:
-        return n.tg.me() if n and n.tg else None
-    except Exception:  # noqa: BLE001 — страница открывается и без Telegram
+    if not (n and n.tg):
         return None
+    conn = request.app.state.db
+    try:
+        name = n.tg.me()
+    except Exception:  # noqa: BLE001 — страница открывается и без Telegram
+        return db.get_state(conn, "tg_bot_username") or None
+    if db.get_state(conn, "tg_bot_username") != name:
+        db.set_state(conn, "tg_bot_username", name)
+    return name
 
 
 @app.get("/account", response_class=HTMLResponse)
@@ -1438,7 +1465,25 @@ def server_page(request: Request):
         eg.ensure_fresh()
     labels = load_egress_settings(request.app.state.db, eg)
     return render(request, "server.html", info=server_info(request), now=int(time.time()), egress=eg.result,
-                  egress_running=eg.running, labels=labels, targets=eg.targets, ipinfo_set=bool(eg.token))
+                  egress_running=eg.running, labels=labels, targets=eg.targets, ipinfo_set=bool(eg.token),
+                  alert_cfg=alerts_mod.config(request.app.state.db))
+
+
+@app.post("/server/alerts")
+async def server_alerts(request: Request):
+    """Пороги алертов: всплеск трафика и «конфиг на нескольких устройствах» (можно выключить совсем)."""
+    require_super(request)
+    form = await request.form()
+    check_csrf(request, str(form.get("csrf", "")))
+    conn = request.app.state.db
+    try:
+        cfg = alerts_mod.save_config(conn, {k: str(v) for k, v in form.items()})
+    except ValueError as e:
+        flash(request, str(e), "error")
+        return RedirectResponse("/server#alerts", status_code=303)
+    db.event(conn, "alert_settings", detail=cfg, actor=current_user(request), actor_ip=client_ip(request))
+    flash(request, t("Settings saved."))
+    return RedirectResponse("/server#alerts", status_code=303)
 
 
 # ---- путь и адреса выхода ----

@@ -24,6 +24,25 @@
   </table>
 </section>
 
+<section class="card" id="alerts">
+  <h1>{{ _("Alerts") }}</h1>
+  <form method="post" action="/server/alerts" class="prefs"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="check"><input type="checkbox" name="spike_on" value="1"{% if alert_cfg.spike_on %} checked{% endif %}> <b>{{ _("Traffic spike") }}</b></label>
+    <div class="quota-form">
+      <label class="check">{{ _("more than") }} <input name="spike_min_gib" inputmode="decimal" size="6" value="{{ '%g'|format(alert_cfg.spike_min_gib) }}" aria-label="{{ _("GiB per hour") }}"> {{ _("GiB per hour") }}</label>
+      <label class="check">{{ _("and") }} <input name="spike_factor" inputmode="numeric" size="4" value="{{ alert_cfg.spike_factor }}" aria-label="{{ _("times the usual") }}"> {{ _("times the usual (median hour of the last 7 days)") }}</label>
+    </div>
+    <p class="muted small">{{ _("A smaller spike is not an alert at all: it is not written to the log and not sent to Telegram.") }}</p>
+    <label class="check"><input type="checkbox" name="shared_on" value="1"{% if alert_cfg.shared_on %} checked{% endif %}> <b>{{ _("“Looks like the config is used on several devices”") }}</b></label>
+    <div class="quota-form">
+      <label class="check"><input name="shared_changes" inputmode="numeric" size="4" value="{{ alert_cfg.shared_changes }}" aria-label="{{ _("address changes") }}"> {{ _("address changes between different providers within") }}</label>
+      <label class="check"><input name="shared_window_min" inputmode="numeric" size="4" value="{{ alert_cfg.shared_window_min }}" aria-label="{{ _("minutes") }}"> {{ _("minutes") }}</label>
+    </div>
+    <p class="muted small">{{ _("Frequent address changes are often harmless: a phone in a car switches between mobile operators, or the client turns the VPN on and off. Turn this alert off if it only gives false alarms; clients will not get it either.") }}</p>
+    <p><button type="submit">{{ _("Save") }}</button></p>
+  </form>
+</section>
+
 {% macro iplink(ip) %}<code>{{ ip }}</code>{% if labels.get(ip) %} <b>{{ labels[ip] }}</b>{% endif %}
   <button type="button" class="link ipcheck" data-ip="{{ ip }}">{{ _("details") }}</button><div class="ipinfo small" hidden></div>{% endmacro %}
 {% macro branch(nodes) %}<ul class="egress-tree">{% for n in nodes %}<li>

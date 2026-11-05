@@ -26,6 +26,10 @@ cd awg-full &amp;&amp; ./install.sh</pre>
       <select name="hour" aria-label="{{ _("Hour") }}">{% for h in range(24) %}<option value="{{ h }}"{% if job.hour == h %} selected{% endif %}>{{ "%02d:00"|format(h) }}</option>{% endfor %}</select>
       <span class="muted small">{{ _("panel time ({tz}); the day of week is used for weekly backups", tz=TZ_LABEL()) }}</span>
     </div>
+    {% if admin.role == "super" %}
+    <label class="check"><input type="checkbox" name="with_history" value="1"{% if job.with_history %} checked{% endif %}> {{ _("Also send the connection log (sites and DNS of the clients for the last days) as a separate file") }}</label>
+    <p class="muted small">{{ _("The log is most of the database, so the main backup goes without it and stays small. Files larger than 45 MB are sent in parts (.001, .002, …): choose all parts together when restoring, or join them with cat file.0* > file.") }}</p>
+    {% endif %}
     <h2>{{ _("Where to send") }}</h2>
     <label class="check"><input type="checkbox" name="to_telegram" value="1"{% if job.to_telegram %} checked{% endif %}> Telegram
       {% if not tg_bot %}<span class="muted small">— {{ _("the bot is not configured") }}</span>
@@ -44,10 +48,12 @@ cd awg-full &amp;&amp; ./install.sh</pre>
     </div>
     <p><button type="submit">{{ _("Save") }}</button></p>
   </form>
-  <form method="post" action="/backups/run" class="row-form">
+  <form method="post" action="/backups/run" class="row-form"{% if running %} data-reload="5"{% endif %}>
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <button type="submit" class="secondary">{{ _("Make a backup now") }}</button>
-    <button type="submit" class="secondary" formaction="/backups/download">{{ _("Download the backup") }}</button>
+    {% if running %}<span class="busy">{{ _("The backup is being made and sent…") }}</span>
+    {% else %}<button type="submit" class="secondary" data-busy="{{ _("Starting…") }}">{{ _("Make a backup now") }}</button>{% endif %}
+    <button type="submit" class="secondary" formaction="/backups/download" data-busy="{{ _("Packing the archive, it takes up to a minute…") }}" data-busy-download>{{ _("Download the backup") }}</button>
+    {% if admin.role == "super" %}<button type="submit" class="secondary" formaction="/backups/download" name="what" value="history" data-busy="{{ _("Packing the archive, it takes up to a minute…") }}" data-busy-download>{{ _("Download the connection log") }}</button>{% endif %}
     {% if job.last_ts %}<span class="small {{ '' if job.last_ok else 'error' }}">{{ _("Last: {when} — {status}", when=job.last_ts|dt, status=job.last_status) }}{% if job.last_size %}, {{ job.last_size|size }}{% endif %}</span>{% endif %}
   </form>
 </section>
@@ -58,12 +64,13 @@ cd awg-full &amp;&amp; ./install.sh</pre>
   <p class="muted small">{{ _("On this server: choose a backup file (.tar.gz.enc or the older .awgbak) and its password. The AmneziaWG files are applied at once without restarting AmneziaWG; the database is put in place and the panel restarts. The current state is saved to data/backups first. To move to a new server, unpack the full backup there and run install.sh.") }}</p>
   <form method="post" action="/backups/restore" enctype="multipart/form-data" class="prefs" autocomplete="off">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>{{ _("Backup file") }} <input type="file" name="file" accept=".enc,.awgbak" required></label>
+    <label>{{ _("Backup file") }} <input type="file" name="file" multiple required></label>
+    <p class="muted small">{{ _("A backup in parts: choose all its files (.001, .002, …) at once. The connection log (awg-history-…) is added to the current database without a restart; restore the main backup first.") }}</p>
     <label>{{ _("Archive password") }} <input type="password" name="password" required autocomplete="off"></label>
     <label class="check"><input type="checkbox" name="part_db" value="1" checked> {{ _("Panel database: clients, history, groups, administrators, settings") }}</label>
     <label class="check"><input type="checkbox" name="part_awg" value="1" checked> {{ _("AmneziaWG files: awg0.conf, clientsTable, server keys") }}</label>
     <label>{{ _("Type RESTORE to confirm") }} <input name="confirm" required pattern="[Rr][Ee][Ss][Tt][Oo][Rr][Ee]" placeholder="RESTORE"></label>
-    <button type="submit" class="danger">{{ _("Restore") }}</button>
+    <button type="submit" class="danger" data-busy="{{ _("Restoring…") }}">{{ _("Restore") }}</button>
   </form>
 </section>
 {% endif %}

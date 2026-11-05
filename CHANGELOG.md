@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.15.0 — 2026-11-05
+
+- Backups: the full backup no longer carries the connection log (sites and DNS of the last days, ~90 % of the
+  database). On a working server it went from 68 MB, too large for Telegram, to about 9 MB. The log goes as a separate
+  file `awg-history-….tar.gz.enc` (setting on the Backups page, on by default). It is restored on the same page and
+  added to the current database without a restart.
+- Files over 45 MB are sent in parts `.001`, `.002`, …; the restore form takes all parts at once.
+- "Make a backup now" runs in the background, and the page shows progress. "Download" can also get the connection log.
+- A failed scheduled backup is retried three times every 30 minutes. After the last failure the administrator gets the
+  "backup failed" alert in Telegram even in quiet hours, and so does the group administrator for their own backup.
+  Earlier the alert was dropped at night. When Telegram cannot be reached, admin alerts wait for the network instead
+  of being lost.
+- Server page → Alerts:
+  - the traffic spike threshold (GiB per hour and times the usual); a smaller spike is neither logged nor sent;
+  - "the config is used on several devices" can be switched off, for example when a phone in a car changes mobile
+    operators;
+  - the `ALERT_*` variables in `.env` are now only defaults.
+- A thin loading bar on every navigation and form, and "busy" buttons. Pages that waited for Telegram (`getMe`, up
+  to 30 s during network drops) now use the last known bot name.
+- Database: ten duplicate indexes dropped (schema 15), about 35 MB less.
+
 ## 1.14.2 — 2026-11-05
 
 - Sign-in: a form sent from an out-of-date login page (opened before a restart, after signing in in another tab,

@@ -27,14 +27,57 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def defaults() -> dict:
+    """Пороги алертов по умолчанию (переменные .env — для совместимости; на странице «Сервер» их можно поменять)."""
+    return {"spike_on": True, "spike_min_gib": _env_int("ALERT_SPIKE_MIN_BYTES", 1 << 30) / (1 << 30),
+            "spike_factor": _env_int("ALERT_SPIKE_FACTOR", 5),
+            "shared_on": True, "shared_changes": _env_int("ALERT_SHARED_CHANGES", 6),
+            "shared_window_min": _env_int("ALERT_SHARED_WINDOW_MIN", 30)}
+
+
+def config(conn: sqlite3.Connection) -> dict:
+    cfg = defaults()
+    try:
+        cfg.update(json.loads(db.get_state(conn, "alert_config") or "{}"))
+    except ValueError:
+        pass
+    return cfg
+
+
+def save_config(conn: sqlite3.Connection, form: dict) -> dict:
+    """Проверить и сохранить настройки с формы; ValueError — с понятным текстом."""
+    from .i18n import t
+
+    def num(key: str, lo: float, hi: float, cast=float):
+        try:
+            v = cast(str(form.get(key, "")).replace(",", ".").strip())
+        except ValueError:
+            raise ValueError(t("Enter a number from {lo} to {hi}.", lo=lo, hi=hi)) from None
+        if not lo <= v <= hi:
+            raise ValueError(t("Enter a number from {lo} to {hi}.", lo=lo, hi=hi))
+        return v
+    cfg = {"spike_on": form.get("spike_on") == "1", "spike_min_gib": num("spike_min_gib", 0.1, 10000),
+           "spike_factor": num("spike_factor", 2, 100, int),
+           "shared_on": form.get("shared_on") == "1", "shared_changes": num("shared_changes", 2, 1000, int),
+           "shared_window_min": num("shared_window_min", 5, 1440, int)}
+    db.set_state(conn, "alert_config", json.dumps(cfg))
+    return cfg
+
+
 class Alerts:
     def __init__(self, settings: Settings, conn: sqlite3.Connection, awg: AWG | None = None):
         self.s, self.conn, self.awg = settings, conn, awg
-        self.shared_changes = _env_int("ALERT_SHARED_CHANGES", 6)
-        self.shared_window = _env_int("ALERT_SHARED_WINDOW_MIN", 30) * 60
-        self.spike_factor = _env_int("ALERT_SPIKE_FACTOR", 5)
-        self.spike_min = _env_int("ALERT_SPIKE_MIN_BYTES", 1 << 30)
+        self.load()
         self.quotas = Quotas(conn)
+
+    def load(self) -> None:
+        """Пороги — из настроек панели (state), перечитываются на каждом проходе."""
+        c = config(self.conn)
+        self.spike_on, self.shared_on = bool(c["spike_on"]), bool(c["shared_on"])
+        self.shared_changes = int(c["shared_changes"])
+        self.shared_window = int(c["shared_window_min"]) * 60
+        self.spike_factor = int(c["spike_factor"])
+        self.spike_min = int(float(c["spike_min_gib"]) * (1 << 30))
 
     def recent(self, kind: str, peer_id: int | None, within: int, now: int) -> bool:
         return self.conn.execute("SELECT 1 FROM events WHERE kind = ? AND peer_id IS ? AND ts >= ? LIMIT 1",
@@ -49,7 +92,10 @@ class Alerts:
     # ---- проверки ----
 
     def check_shared(self, now: int) -> int:
-        """Частые смены IP между разными провайдерами — похоже, один конфиг на нескольких устройствах."""
+        """Частые смены IP между разными провайдерами — похоже, один конфиг на нескольких устройствах.
+        Бывает и ложно (телефон в машине переключается между операторами) — поэтому проверку можно выключить."""
+        if not self.shared_on:
+            return 0
         n = 0
         rows = self.conn.execute("SELECT peer_id, detail FROM events WHERE kind = 'endpoint_change' AND ts >= ?",
                                  (now - self.shared_window,)).fetchall()
@@ -66,6 +112,8 @@ class Alerts:
 
     def check_spike(self, now: int) -> int:
         """Трафик за прошедший час больше медианы часового трафика за 7 дней в N раз и больше порога."""
+        if not self.spike_on:
+            return 0
         hour = now - now % 3600 - 3600
         n = 0
         for r in self.conn.execute("SELECT peer_id, rx + tx b FROM traffic_hour WHERE ts = ?", (hour,)).fetchall():
@@ -120,6 +168,7 @@ class Alerts:
 
     def tick(self, now: int | None = None) -> None:
         now = int(time.time()) if now is None else now
+        self.load()
         self.check_shared(now)
         self.check_spike(now)
         if self.awg and self.quotas.manager is None:

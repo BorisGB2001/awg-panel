@@ -231,6 +231,22 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE groups ADD COLUMN parent_id INTEGER REFERENCES groups(id);
     """,
+    # 15: бэкап — журнал соединений отдельным архивом (по желанию), повторы после сбоя;
+    #     лишние индексы idx_* (созданы вручную, дублируют индексы схемы) — минус ~35 МБ на рабочей базе
+    """
+    ALTER TABLE backup_jobs ADD COLUMN with_history INT NOT NULL DEFAULT 1;
+    ALTER TABLE backup_jobs ADD COLUMN retries INT NOT NULL DEFAULT 0;
+    DROP INDEX IF EXISTS idx_traffic_min_peer_ts;
+    DROP INDEX IF EXISTS idx_traffic_hour_peer_ts;
+    DROP INDEX IF EXISTS idx_flows_peer_ts;
+    DROP INDEX IF EXISTS idx_dns_peer_ts;
+    DROP INDEX IF EXISTS idx_sessions_peer_start;
+    DROP INDEX IF EXISTS idx_events_ts;
+    DROP INDEX IF EXISTS idx_events_peer_ts;
+    DROP INDEX IF EXISTS idx_events_kind_ts;
+    DROP INDEX IF EXISTS idx_peers_ip;
+    DROP INDEX IF EXISTS idx_peers_pubkey;
+    """,
 ]
 
 

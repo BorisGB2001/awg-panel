@@ -13,6 +13,7 @@ import sqlite3
 import ssl
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -35,6 +36,7 @@ class Telegram:
     def __init__(self, token: str):
         self.token = token
         self.username: str | None = None
+        self._me_retry = 0.0
 
     def call(self, method: str, params: dict | None = None, files: dict[str, tuple[str, bytes, str]] | None = None,
              timeout: float = 30) -> dict:
@@ -61,8 +63,16 @@ class Telegram:
         return out["result"]
 
     def me(self) -> str:
+        """Имя бота — для ссылок на страницах. Запоминается; при сбое сети страницы не ждут: короткий таймаут и
+        минута паузы до следующей попытки (раньше страница «Бэкапы» висела по 30 секунд на каждом открытии)."""
         if not self.username:
-            self.username = self.call("getMe")["username"]
+            if time.time() < self._me_retry:
+                raise RuntimeError("Telegram getMe: retry later")
+            try:
+                self.username = self.call("getMe", timeout=5)["username"]
+            except Exception:
+                self._me_retry = time.time() + 60
+                raise
         return self.username
 
     def send(self, chat_id: int, text: str) -> None:
@@ -243,16 +253,23 @@ class Notifier:
         targets = self.conn.execute("SELECT * FROM admins WHERE tg_chat_id IS NOT NULL AND disabled = 0").fetchall()
         hour = datetime.datetime.fromtimestamp(now, fmt.TZ).hour
         scope: dict[int, set[int]] = {}
-        sent = 0
+        sent, stop_at = 0, None
         for e in rows:
+            if stop_at is not None:
+                break
+            owner = json.loads(e["detail"] or "{}").get("username") if e["kind"] == "alert_backup" else None
             for a in targets:
                 if e["kind"] == "admin_login" and not a["notify_logins"]:
                     continue
                 if e["kind"].startswith("alert_") and not a["notify_alerts"]:
                     continue
-                if e["kind"] != "alert_server" and admins.in_quiet_hours(a, hour):
+                # сбой сервера и сбой бэкапа (его время администратор выбрал сам) приходят и в тихие часы
+                if e["kind"] not in ("alert_server", "alert_backup") and admins.in_quiet_hours(a, hour):
                     continue
-                if a["role"] != "super":   # администратор группы — только события своих клиентов
+                if owner and a["role"] != "super":   # сбой бэкапа администратора группы — ему самому
+                    if a["username"] != owner:
+                        continue
+                elif a["role"] != "super":   # администратор группы — только события своих клиентов
                     if a["id"] not in scope:
                         scope[a["id"]] = groups.peers_of(self.conn, groups.admin_group_ids(self.conn, a["id"]))
                     if e["peer_id"] is None or e["peer_id"] not in scope[a["id"]]:
@@ -267,6 +284,12 @@ class Notifier:
                 except Exception as ex:  # noqa: BLE001 — один получатель не должен мешать остальным
                     self.conn.execute("INSERT INTO notify_log (ts, peer_id, channel, kind, ok, error) VALUES (?, NULL, ?, ?, 0, ?)",
                                       (now, "telegram-admin", e["kind"], f"{a['username']}: {str(ex)[:250]}"))
+                    if isinstance(ex, (urllib.error.URLError, TimeoutError, ConnectionError)) and not isinstance(ex, urllib.error.HTTPError):
+                        stop_at = e["id"]   # нет сети до Telegram: это и следующие события — в следующий проход
+                        break
+        if stop_at is not None:
+            db.set_state(self.conn, "notify_admin_event_id", str(stop_at - 1))
+            return sent
         db.set_state(self.conn, "notify_admin_event_id", str(rows[-1]["id"] if len(rows) == 200 else max(top, last)))
         return sent
 

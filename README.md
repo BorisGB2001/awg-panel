@@ -123,6 +123,9 @@ ssh root@<server> /opt/awg-panel/ip-allow.sh clear                       # remov
 Every administrator sets up their own backup on the **Backups** page: daily or weekly at a chosen hour, plus "Make a backup now"; delivery to Telegram (the chat connected on "My account"), e-mail or both.
 
 - **Super administrator — the full server** (`awg-full-….tar.gz.enc`): panel code and scripts, `.env`, the database with all statistics, `data.key`, and AmneziaWG — server keys, all clients, the container's `Dockerfile` and `start.sh`. Inside is `install.sh` that rebuilds the server from scratch.
+- **Connection log separately** (`awg-history-….tar.gz.enc`, optional, on by default): the sites and DNS queries of the clients for the last days. It is most of the database, so the main backup goes without it and stays small (a few MB). Restore it on the Backups page after the main backup: it is added to the current database without a restart.
+- Files over 45 MB (the Telegram limit is 50 MB) are sent in parts `….001`, `….002`; choose all parts together when restoring, or join them with `cat file.0* > file`.
+- A scheduled backup that fails (often a network outage) is retried three times every 30 minutes; if the last attempt also fails, the administrator gets a "backup failed" alert in Telegram, quiet hours or not.
 - **Group administrator — their groups:** `clients.csv` and the `.conf` configs of the clients.
 - Files are **always encrypted** with the administrator's backup password. The full backup uses the `openssl enc` format (AES-256-CBC, PBKDF2 600 000 iterations), so a clean server needs only `openssl` and `tar`; group backups (`.awgbak`) use AES-256-GCM. Keep the password: without it the backup cannot be opened. "Download the backup" gives the same file in the browser.
 
