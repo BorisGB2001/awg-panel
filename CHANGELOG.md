@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.14.2 — 2026-11-05
+
+- Sign-in: a form sent from an out-of-date login page (opened before a restart, after signing in in another tab,
+  or via "Back") now shows the sign-in page again with a hint instead of the bare `{"detail":"CSRF"}`. A request
+  from another site is still rejected.
+
 ## 1.14.1 — 2026-11-01
 
 - Client portal: for a client created in the AmneziaVPN app the panel has no private key, so the portal cannot give out
