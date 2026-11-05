@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.1 — 2026-11-05
+
+- Messages after an action ("Settings saved.", errors) pop up in the top right corner instead of a bar above the page
+  that pushed everything down. A message stays for 5 s (an error for 10 s, and as long as the mouse is over it), then
+  fades out. Each one has ✕, and when there are several, "Close all notifications" appears under them.
+
 ## 1.15.0 — 2026-11-05
 
 - Backups: the full backup no longer carries the connection log (sites and DNS of the last days, ~90 % of the

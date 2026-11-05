@@ -754,5 +754,7 @@
   "more than": "больше",
   "times the usual": "раз больше обычного",
   "times the usual (median hour of the last 7 days)": "раз больше обычного (медиана часа за 7 дней)",
-  "“Looks like the config is used on several devices”": "«Похоже, конфиг используется на нескольких устройствах»"
+  "“Looks like the config is used on several devices”": "«Похоже, конфиг используется на нескольких устройствах»",
+  "Close": "Закрыть",
+  "Close all notifications": "Закрыть все уведомления"
 }

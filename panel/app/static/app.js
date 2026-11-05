@@ -175,3 +175,53 @@ document.querySelectorAll("select[data-autosubmit]").forEach((s) => s.addEventLi
   const r = document.querySelector("[data-reload]");
   if (r) setTimeout(() => location.reload(), Number(r.dataset.reload) * 1000);
 })();
+
+// Уведомления: плашки в правом верхнем углу. Держатся несколько секунд (ошибки — дольше, при наведении — пока
+// мышь над ними) и плавно исчезают; ✕ закрывает одну, «Закрыть все» — все, когда их больше одной.
+(function () {
+  const box = document.getElementById("toasts");
+  if (!box) return;
+  const all = document.createElement("button");
+  all.type = "button";
+  all.className = "toast-all";
+  all.textContent = box.dataset.closeAll || "Close all";
+  all.hidden = true;
+  all.addEventListener("click", () => box.querySelectorAll(".toast").forEach((t) => hide(t)));
+  box.appendChild(all);
+  const refresh = () => { all.hidden = box.querySelectorAll(".toast:not(.leaving)").length < 2; };
+
+  function hide(t) {
+    if (t.classList.contains("leaving")) return;
+    t.classList.add("leaving");
+    refresh();
+    setTimeout(() => { t.remove(); refresh(); }, 400);
+  }
+
+  function arm(t) {
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "toast-x";
+    x.setAttribute("aria-label", box.dataset.close || "Close");
+    x.textContent = "✕";
+    x.addEventListener("click", () => hide(t));
+    t.appendChild(x);
+    let left = t.classList.contains("toast-error") ? 10000 : 5000, started = Date.now(), timer;
+    const go = () => { started = Date.now(); timer = setTimeout(() => hide(t), left); };
+    t.addEventListener("mouseenter", () => { clearTimeout(timer); left = Math.max(1500, left - (Date.now() - started)); });
+    t.addEventListener("mouseleave", go);
+    go();
+  }
+
+  box.querySelectorAll(".toast").forEach(arm);
+  refresh();
+  // для скриптов страницы: window.toast("Сохранено") / window.toast("Ошибка", "error")
+  window.toast = (text, kind) => {
+    const t = document.createElement("div");
+    t.className = "toast toast-" + (kind || "ok");
+    t.setAttribute("role", kind === "error" ? "alert" : "status");
+    t.textContent = text;
+    box.insertBefore(t, all);
+    arm(t);
+    refresh();
+  };
+})();
