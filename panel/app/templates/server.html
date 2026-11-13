@@ -13,6 +13,63 @@
   <div class="card kpi"><div class="muted">{{ _("Panel database") }}</div><b>{{ info.db_size|size }}</b><div class="muted small">{{ _("DB-IP from {date}", date=info.geo or "—") }}</div></div>
 </section>
 
+{% macro io(p) %}<b>{{ p.total|size }}</b><div class="muted small">↓ {{ p.rx|size }} · ↑ {{ p.tx|size }}</div>{% endmacro %}
+<section class="card" id="host-traffic">
+  <div class="kpi-head"><h1>{{ _("Server traffic") }}</h1>
+    {% if vn.ifaces and vn.iface %}<form method="post" action="/server/vnstat/iface" class="row-form"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <label class="small">{{ _("Interface") }} <select name="iface" data-autosubmit aria-label="{{ _("Interface") }}">{% for n in vn.ifaces %}<option{% if n == vn.iface %} selected{% endif %}>{{ n }}</option>{% endfor %}</select></label>
+      <noscript><button type="submit" class="secondary">{{ _("Save") }}</button></noscript></form>{% endif %}</div>
+  {% if vn.state == "off" %}
+  <p class="muted">{{ _("Panel collectors are off (PANEL_COLLECTORS=0), vnStat is not read.") }}</p>
+  {% elif vn.state == "missing" %}
+  <p class="warn">{{ _("vnStat is not installed on the server. Install it on the host:") }} <code>apt install vnstat</code>. {{ _("Data will appear within 5 minutes.") }}</p>
+  {% elif vn.state == "empty" %}
+  <p class="warn">{{ _("vnStat has no data yet. Data will appear within 5 minutes after the service starts.") }}
+    {% if vn.active != "active" %}{{ _("Start the service on the host:") }} <code>systemctl enable --now vnstat</code>{% endif %}</p>
+  {% elif vn.state == "error" %}
+  <p class="error">{{ vn.error }}</p>
+  {% else %}
+  {% set k = vn.kpi %}
+  <section class="kpis compact">
+    <div class="card kpi"><div class="muted">{{ _("Today") }}</div>{{ io(k.today) }}</div>
+    <div class="card kpi"><div class="muted">{{ _("Yesterday") }}</div>{{ io(k.yesterday) }}</div>
+    <div class="card kpi"><div class="muted">{{ _("This month") }}</div>{{ io(k.month) }}</div>
+    <div class="card kpi"><div class="muted">{{ _("Last month") }}</div>{{ io(k.last_month) }}</div>
+    <div class="card kpi"><div class="muted">{{ _("Speed now") }}</div>
+      {% if k.rate %}<b>{{ "%.1f"|format(k.rate.rx + k.rate.tx) }} {{ _("Mbit/s") }}</b>
+      <div class="muted small">↓ {{ "%.1f"|format(k.rate.rx) }} · ↑ {{ "%.1f"|format(k.rate.tx) }} · {{ k.rate.ts|dt("%H:%M") }}</div>
+      {% else %}<b>—</b>{% endif %}</div>
+    <div class="card kpi"><div class="muted">{{ _("Month forecast") }}</div>
+      {% if k.forecast %}{{ io(k.forecast) }}{% else %}<b>—</b><div class="muted small">{{ _("after the first full day") }}</div>{% endif %}</div>
+  </section>
+  <p class="muted small">{{ _("↓ incoming, ↑ outgoing. Speed is the average of the last full 5 minutes. The forecast adds yesterday's volume for every day left in the month.") }}</p>
+  {% for title, chart in vn.charts %}<h2>{{ title }}</h2>{{ chart|safe }}{% endfor %}
+  <h2>{{ _("Top 5 days") }}</h2>
+  <table class="tbl">
+    <tr><th>{{ _("Date") }}</th><th>{{ _("incoming") }}</th><th>{{ _("outgoing") }}</th><th>{{ _("total") }}</th></tr>
+    {% for d in vn.top %}<tr><td>{{ d.date.strftime("%d.%m.%Y") }}</td><td>{{ d.rx|size }}</td><td>{{ d.tx|size }}</td><td><b>{{ d.total|size }}</b></td></tr>
+    {% else %}<tr><td class="muted" colspan="4">{{ _("none") }}</td></tr>{% endfor %}
+  </table>
+  {% if vn.others %}
+  <details><summary>{{ _("Other interfaces ({n})", n=vn.others|length) }}</summary>
+  <table class="tbl">
+    <tr><th></th><th>{{ _("Today") }}</th><th>{{ _("This month") }}</th></tr>
+    {% for o in vn.others %}<tr><td><code>{{ o.name }}</code></td>
+      <td>{{ o.today.total|size }} <span class="muted small">↓ {{ o.today.rx|size }} · ↑ {{ o.today.tx|size }}</span></td>
+      <td>{{ o.month.total|size }} <span class="muted small">↓ {{ o.month.rx|size }} · ↑ {{ o.month.tx|size }}</span></td></tr>{% endfor %}
+  </table></details>
+  {% endif %}
+  {% endif %}
+  {% if vn.state != "off" %}
+  <p class="muted small">{{ _("Source") }}: vnStat{% if vn.version %} {{ vn.version }}{% endif %}
+    · {{ _("installed") if vn.state != "missing" else _("not installed") }}
+    {% if vn.active %} · {{ _("service") }}: {% if vn.active == "active" %}<span class="st st-online">{{ vn.active }}</span>{% else %}<span class="error">{{ vn.active }}</span>{% endif %}{% endif %}
+    {% if vn.updated %} · <span{% if now - vn.updated > 900 %} class="error"{% endif %}>{{ _("last database write {when}", when=vn.updated|ago(now)) }}</span>{% endif %}
+    {% if vn.since %} · {{ _("data since {date}", date=vn.since|dt("%d.%m.%Y")) }}{% endif %}
+    · {{ _("vnStat writes every 5 minutes; the panel rereads it once a minute.") }}</p>
+  {% endif %}
+</section>
+
 <section class="card">
   <h1>{{ _("Panel collectors") }}</h1>
   <table class="tbl">

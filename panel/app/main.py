@@ -23,7 +23,7 @@ from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import __version__, admins, auth, backup, charts, egress, groups, ipallow, quotas, clientconf, db, fmt, i18n, maintenance, monthly, notify, portal, report
+from . import __version__, admins, auth, backup, charts, egress, groups, ipallow, quotas, clientconf, db, fmt, i18n, maintenance, monthly, notify, portal, report, vnstat
 from .fmt import N_
 from .i18n import t
 from .awgctl import AWG, AwgUnavailable
@@ -64,9 +64,11 @@ async def lifespan(app: FastAPI):
     app.state.poller = app.state.sniffer = app.state.flows = app.state.blocker = app.state.alerts = None
     app.state.notifier = None
     app.state.backups = None
+    app.state.vnstat = None
     # перезапуск после восстановления базы: процесс завершается, Docker (restart: unless-stopped) поднимает его снова
     app.state.restart = lambda: threading.Timer(2.0, os._exit, (0,)).start()
     if os.environ.get("PANEL_COLLECTORS", "1") == "1":
+        app.state.vnstat = vnstat.VnStat()           # host traffic; read on demand, cached for a minute
         threading.Thread(target=app.state.geo.updater, args=(app.state.stop,), name="geo", daemon=True).start()
         app.state.poller = Poller(settings, AWG(settings), db.open_db(settings.db_path), app.state.geo)
         threading.Thread(target=app.state.poller.run, args=(app.state.stop,), name="poller", daemon=True).start()
@@ -1009,6 +1011,7 @@ def server_info(request: Request) -> dict:
         "DNS/SNI": st.sniffer and (None, st.sniffer.last_error, t("packets {n}", n=st.sniffer.packets)),
         N_("Connections (conntrack)"): st.flows and (None, st.flows.last_error, t("events {n}", n=st.flows.events)),
         N_("Blocking"): st.blocker and (None, st.blocker.last_error, t("kernel rules {n}", n=st.blocker.applied_rules)),
+        "vnStat": st.vnstat and (st.vnstat.last_ok, st.vnstat.last_error),
     }
     root = settings.data_dir / "backups"
     info["backups"] = sorted((p.name for p in root.iterdir() if p.is_dir()), reverse=True)[:15] if root.exists() else []
@@ -1464,9 +1467,28 @@ def server_page(request: Request):
     if os.environ.get("PANEL_COLLECTORS", "1") == "1":
         eg.ensure_fresh()
     labels = load_egress_settings(request.app.state.db, eg)
-    return render(request, "server.html", info=server_info(request), now=int(time.time()), egress=eg.result,
+    vn = request.app.state.vnstat
+    now = int(time.time())
+    host_traffic = vnstat.view(vn.snapshot(now) if vn else None, db.get_state(request.app.state.db, "vnstat_iface"), fmt.TZ, now)
+    return render(request, "server.html", info=server_info(request), now=now, egress=eg.result, vn=host_traffic,
                   egress_running=eg.running, labels=labels, targets=eg.targets, ipinfo_set=bool(eg.token),
                   alert_cfg=alerts_mod.config(request.app.state.db))
+
+
+@app.post("/server/vnstat/iface")
+def vnstat_iface(request: Request, iface: str = Form(""), csrf: str = Form("")):
+    """Interface shown in "Server traffic"; remembered for all administrators."""
+    require_super(request)
+    check_csrf(request, csrf)
+    vn = request.app.state.vnstat
+    names = vnstat.visible(i["name"] for i in (vn.snapshot().get("doc") or {}).get("interfaces") or []) if vn else []
+    if iface not in names:
+        flash(request, t("Unknown interface: {name}", name=iface[:32]), "error")
+    else:
+        db.set_state(request.app.state.db, "vnstat_iface", iface)
+        request.app.state.db.commit()
+        flash(request, t("Saved."))
+    return RedirectResponse("/server#host-traffic", status_code=303)
 
 
 @app.post("/server/alerts")

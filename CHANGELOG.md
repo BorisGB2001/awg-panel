@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.16.0 — 2026-11-13
+
+- Server page → **Server traffic**: the host's own traffic from vnStat, above "Panel collectors".
+  - For the chosen interface (`eth0` by default; the list is vnStat's interfaces without `lo`, `veth*`, `docker*`;
+    the choice is remembered for all administrators): incoming / outgoing / total for today, yesterday, this month
+    and last month; speed in Mbit/s from the last complete 5-minute entry; a forecast for the end of the month.
+  - The forecast is this month so far plus yesterday's volume for every day left. vnStat's own "estimated" figure
+    extrapolates the current day and is far off in its first hours, so the panel uses only a full day; until there
+    is one, the tile says "after the first full day".
+  - Charts with incoming and outgoing as separate series: 24 hours by 5 minutes, 4 days by hour, this and last month
+    by day, 12 months by month. The top 5 days of all time and the other interfaces (`wt0`, `amn0`, tunnels) with
+    today and this month, collapsed, busiest first.
+  - Source status: vnStat version, whether the service is active, the last database write (red after 15 minutes) and
+    the date data starts from. Without vnStat or with an empty database the block shows what to do
+    (`apt install vnstat`, "data will appear within 5 minutes") and the page still opens.
+  - "vnStat" in "Panel collectors" with its status and last read; with `PANEL_COLLECTORS=0` vnStat is not read.
+- How vnStat is read: `nsenter -t 1 -m -- vnstat --json` (timeout 5 s, cached for 60 s). The panel container already
+  runs with `pid: host` and `privileged`, so `docker-compose.yml` does not change and nothing new is mounted. The JSON
+  output is vnStat's public interface, while its SQLite schema is internal and may change between versions; vnStat
+  also does the aggregation itself, and a missing `vnstat` binary is detected directly. `systemctl is-active vnstat`
+  runs the same way for the service status.
+- vnStat runs without the container's `TZ`, so its timestamps follow the host's time zone. Days and months are the
+  host's local dates, so keep `TZ` in `.env` equal to the host's time zone, or "today" may be off near midnight.
+
 ## 1.15.1 — 2026-11-05
 
 - Messages after an action ("Settings saved.", errors) pop up in the top right corner instead of a bar above the page
