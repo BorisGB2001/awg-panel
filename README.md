@@ -50,7 +50,7 @@ Demo data: the clients, addresses and traffic are fictional. Click a picture to 
 - Clients are added and removed on the live interface (`awg set`), so other sessions are not interrupted. Before every change both files are backed up to `data/backups/`, and on error the change is rolled back. The AmneziaVPN app keeps seeing all clients.
 - Collection: `awg show dump` every 30 s (traffic, sessions, endpoints), DNS answers and SNI from `tcpdump` on `awg0`, closed connections from `conntrack`. Geo data comes from DB-IP Lite databases, updated monthly.
 - Blocking uses iptables rules in the container namespace (chain `AWGPANEL_BLOCK`); they keep working without the panel and are restored after a container restart.
-- Retention: per-minute traffic — 7 days; sites and connections — 30 days, then daily totals (`hosts_day`, one year); hourly traffic, sessions and the monthly archive — forever; events — one year. Nightly DB backup, last 14 kept.
+- Retention: per-minute traffic — 7 days; sites and connections — 30 days, then daily totals (`hosts_day`, one year); hourly traffic, sessions and the monthly archive — forever; events — one year. Nightly DB backup, compressed: 3 full copies and 14 without the connection log.
 
 ## Requirements
 
@@ -105,7 +105,7 @@ The same is shown in the panel on the "Server" page.
   cp $B/awg0.conf $D/awg0.conf && cp $B/clientsTable $D/clientsTable
   nsenter -t $P -m -n sh -c 'awg-quick strip /opt/amnezia/awg/awg0.conf > /tmp/awg0.strip && awg syncconf awg0 /tmp/awg0.strip'
   ```
-- Panel DB: `data/backups/db/panel-*.db` (last 14). Restore: `docker compose stop panel`, copy the file to `data/panel.db`, delete `panel.db-wal`/`-shm`, `docker compose up -d --no-build panel`.
+- Panel DB, nightly, gzip-compressed: `data/backups/db/panel-*.db.gz` — full copies (last 3) and `panel-*.nolog.db.gz` without the connection log (last 14, a few MB each). Restore: `docker compose stop panel`, `gunzip -c <file> > data/panel.db`, delete `panel.db-wal`/`-shm`, `docker compose up -d --no-build panel`.
 - Secrets: `.env` (password, TOTP, sessions) and `data/data.key` (encrypts client private keys). Without `data.key` the configs of clients created in the panel cannot be restored. Keep copies somewhere safe.
 
 ## Access by IP

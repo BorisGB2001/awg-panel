@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.16.1 — 2026-11-22
+
+- Nightly database copies take a fraction of the disk. On a working server 14 uncompressed full copies took
+  7.9 GiB. Now each night writes two gzip files:
+  - `panel-*.db.gz` — a full copy, the last 3 are kept;
+  - `panel-*.nolog.db.gz` — without the connection log (sites and DNS), the last 14 are kept, a few MB each.
+
+  Older uncompressed copies are removed after the first new one is written.
+
 ## 1.16.0 — 2026-11-13
 
 - Server page → **Server traffic**: the host's own traffic from vnStat, above "Panel collectors".

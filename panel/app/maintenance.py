@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import datetime
+import gzip
 import logging
+import os
+import shutil
 import sqlite3
 import threading
 import time
@@ -13,7 +16,11 @@ from .config import Settings
 
 log = logging.getLogger("maintenance")
 
+# Ночные копии базы, сжатые gzip: полные (с журналом соединений — он 90 % базы) — 3 последние, без журнала — 14.
+# Раньше хранились 14 несжатых полных копий: на рабочем сервере это 7,9 ГиБ.
 KEEP_DB_BACKUPS = 14
+KEEP_FULL_DB_BACKUPS = 3
+HISTORY_TABLES = ("flows", "dns")
 
 
 def aggregate_hosts(conn: sqlite3.Connection, tz: ZoneInfo, upto: int) -> int:
@@ -67,19 +74,43 @@ def cleanup(conn: sqlite3.Connection, s: Settings, now: int) -> dict[str, int]:
     return out
 
 
+def _gzip(src, dst) -> None:
+    tmp = f"{dst}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with open(src, "rb") as f, os.fdopen(fd, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", compresslevel=6) as z:
+        shutil.copyfileobj(f, z, 1 << 20)
+    os.replace(tmp, dst)
+
+
 def backup_db(conn: sqlite3.Connection, s: Settings, now: int) -> str:
+    """Ночная копия базы: panel-<время>.db.gz (полная) и panel-<время>.nolog.db.gz (без журнала соединений и DNS,
+    в разы меньше). Восстановить: gunzip -c файл > data/panel.db (панель остановлена)."""
     d = s.data_dir / "backups" / "db"
     d.mkdir(parents=True, exist_ok=True, mode=0o700)
-    path = d / f"panel-{time.strftime('%Y%m%d-%H%M', time.localtime(now))}.db"
-    dst = sqlite3.connect(path)
+    d.chmod(0o700)                              # каталог мог остаться от старых версий с правами 755
+    stamp = time.strftime("%Y%m%d-%H%M", time.localtime(now))
+    tmp = d / f".panel-{stamp}.db.tmp"
     try:
-        conn.backup(dst)
+        dst = sqlite3.connect(tmp)
+        try:
+            conn.backup(dst)
+            tmp.chmod(0o600)
+            _gzip(tmp, d / f"panel-{stamp}.db.gz")
+            for tbl in HISTORY_TABLES:
+                dst.execute(f"DELETE FROM {tbl}")
+            dst.commit()
+            dst.execute("VACUUM")
+        finally:
+            dst.close()
+        _gzip(tmp, d / f"panel-{stamp}.nolog.db.gz")
     finally:
-        dst.close()
-    path.chmod(0o600)
-    for old in sorted(d.glob("panel-*.db"))[:-KEEP_DB_BACKUPS]:
+        tmp.unlink(missing_ok=True)
+    full = sorted(p for p in d.glob("panel-*.db.gz") if not p.name.endswith(".nolog.db.gz"))
+    for old in full[:-KEEP_FULL_DB_BACKUPS] + sorted(d.glob("panel-*.nolog.db.gz"))[:-KEEP_DB_BACKUPS]:
         old.unlink(missing_ok=True)
-    return path.name
+    for old in d.glob("panel-*.db"):          # несжатые копии прежних версий
+        old.unlink(missing_ok=True)
+    return f"panel-{stamp}.db.gz"
 
 
 def tick(conn: sqlite3.Connection, s: Settings, now: int | None = None) -> None:
